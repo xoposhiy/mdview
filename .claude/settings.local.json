@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /c/work/mdview/src && go get github.com/jchv/go-webview2 github.com/yuin/goldmark 2>&1)",
+      "Bash(cmd /c \"C:\\\\work\\\\mdview\\\\build.bat\")",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\work\\\\mdview\\\\build.ps1\" 2>&1)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\work\\\\mdview\\\\debug-screenshot.ps1\" 2>&1)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"\n\\\\$proc = Start-Process -FilePath 'C:\\\\work\\\\mdview\\\\mdview.exe' -ArgumentList 'C:\\\\work\\\\mdview\\\\specs\\\\requirements.md' -PassThru\nStart-Sleep -Milliseconds 3000\nAdd-Type @'\nusing System; using System.Runtime.InteropServices; using System.Collections.Generic; using System.Text;\npublic class WinAPI2 {\n    public delegate bool EnumDelegate\\(IntPtr hwnd, IntPtr lParam\\);\n    [DllImport\\(\\\\\"user32.dll\\\\\"\\)] public static extern bool EnumWindows\\(EnumDelegate cb, IntPtr lp\\);\n    [DllImport\\(\\\\\"user32.dll\\\\\"\\)] public static extern int GetWindowText\\(IntPtr hwnd, StringBuilder sb, int max\\);\n    [DllImport\\(\\\\\"user32.dll\\\\\"\\)] public static extern bool IsWindowVisible\\(IntPtr hwnd\\);\n}\n'@\n\\\\$titles = @\\(\\)\n[WinAPI2]::EnumWindows\\({ param\\(\\\\$h,\\\\$l\\); if \\([WinAPI2]::IsWindowVisible\\(\\\\$h\\)\\) { \\\\$sb = New-Object System.Text.StringBuilder\\(256\\); [WinAPI2]::GetWindowText\\(\\\\$h,\\\\$sb,256\\); if \\(\\\\$sb.Length -gt 0\\) { \\\\$script:titles += \\\\$sb.ToString\\(\\) } }; return \\\\$true }, [IntPtr]::Zero\\)\n\\\\$titles | Where-Object { \\\\$_ -match 'mdview|requirements' }\n\\\\$proc | Stop-Process -Force -ErrorAction SilentlyContinue\n\" 2>&1)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\work\\\\mdview\\\\debug-findwindow.ps1\" 2>&1)",
+      "Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\work\\\\mdview\\\\build.ps1\" 2>&1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\work\\\\mdview\\\\debug-screenshot.ps1\" 2>&1)",
+      "Bash(go run:*)",
+      "Read(//c/work/**)"
+    ]
+  }
+}
