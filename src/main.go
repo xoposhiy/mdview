@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"mdview/internal/config"
 	"mdview/internal/renderer"
@@ -27,7 +28,7 @@ func main() {
 	cfg := config.Load()
 	dark := cfg.Theme == "dark"
 
-	html, err := renderer.RenderWithTheme(content, dark, 0)
+	html, err := renderer.RenderWithTheme(content, dark, 0, filepath.Dir(path))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error rendering: %v\n", err)
 		os.Exit(1)

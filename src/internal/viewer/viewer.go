@@ -87,7 +87,7 @@ type Viewer struct {
 	filePath  string
 	darkTheme bool
 	scrollY   int
-	renderFn  func([]byte, bool, int) (string, error)
+	renderFn  func([]byte, bool, int, string) (string, error)
 }
 
 // New creates a Viewer, binds hotkey handlers, and sets the initial HTML.
@@ -100,7 +100,7 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "mdview", "webview")
 }
 
-func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, int) (string, error)) *Viewer {
+func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, int, string) (string, error)) *Viewer {
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
@@ -156,7 +156,7 @@ func (v *Viewer) reload() {
 	if err != nil {
 		return
 	}
-	html, err := v.renderFn(content, v.darkTheme, v.scrollY)
+	html, err := v.renderFn(content, v.darkTheme, v.scrollY, filepath.Dir(v.filePath))
 	if err != nil {
 		return
 	}
@@ -204,7 +204,7 @@ func (v *Viewer) navigate(offset int) {
 	}
 	v.filePath = newPath
 	v.scrollY = 0
-	html, err := v.renderFn(content, v.darkTheme, 0)
+	html, err := v.renderFn(content, v.darkTheme, 0, filepath.Dir(newPath))
 	if err != nil {
 		return
 	}
