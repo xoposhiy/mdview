@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"mdview/internal/config"
 	"mdview/internal/renderer"
 	"mdview/internal/viewer"
 )
@@ -22,12 +23,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	html, err := renderer.Render(content)
+	cfg := config.Load()
+	dark := cfg.Theme == "dark"
+
+	html, err := renderer.RenderWithTheme(content, dark)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error rendering: %v\n", err)
 		os.Exit(1)
 	}
 
-	v := viewer.New(path, html, renderer.Render)
+	v := viewer.New(path, html, dark, renderer.RenderWithTheme)
 	v.Run()
 }

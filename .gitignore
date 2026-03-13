@@ -2,3 +2,4 @@
 dist/
 debug.png
 src/vendor/
+src/*.syso

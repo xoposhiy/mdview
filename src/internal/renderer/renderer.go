@@ -14,9 +14,6 @@ import (
 //go:embed assets/template.html
 var pageTemplate string
 
-//go:embed assets/style.css
-var styleCSS string
-
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithParserOptions(
@@ -30,20 +27,25 @@ var md = goldmark.New(
 var tmpl = template.Must(template.New("page").Parse(pageTemplate))
 
 type pageData struct {
-	Style   template.HTML
-	Content template.HTML
+	Content   template.HTML
+	DarkTheme bool
 }
 
-// Render converts Markdown content to a complete HTML page.
+// Render converts Markdown content to a complete HTML page (light theme).
 func Render(content []byte) (string, error) {
+	return RenderWithTheme(content, false)
+}
+
+// RenderWithTheme converts Markdown content to a complete HTML page.
+func RenderWithTheme(content []byte, dark bool) (string, error) {
 	var body bytes.Buffer
 	if err := md.Convert(content, &body); err != nil {
 		return "", err
 	}
 
 	data := pageData{
-		Style:   template.HTML(styleCSS),
-		Content: template.HTML(body.String()),
+		Content:   template.HTML(body.String()),
+		DarkTheme: dark,
 	}
 
 	var out bytes.Buffer

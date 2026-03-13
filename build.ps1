@@ -21,7 +21,7 @@ Write-Host "[mdview] Running tests..."
 if ($LASTEXITCODE -ne 0) { Write-Error "Tests failed"; exit 1 }
 
 Write-Host "[mdview] Building..."
-& go build -ldflags="-H windowsgui" -o "$PSScriptRoot\mdview.exe" .
+& go build -trimpath -ldflags="-s -w -H windowsgui" -o "$PSScriptRoot\mdview.exe" .
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
 
 Write-Host ""
