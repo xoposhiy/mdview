@@ -10,7 +10,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host $goVersion
 
 Write-Host "[mdview] Fetching dependencies..."
-& go get github.com/jchv/go-webview2 github.com/yuin/goldmark
+& go get github.com/jchv/go-webview2 github.com/yuin/goldmark github.com/fsnotify/fsnotify
 if ($LASTEXITCODE -ne 0) { Write-Error "go get failed"; exit 1 }
 
 & go mod tidy

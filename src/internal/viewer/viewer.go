@@ -14,11 +14,13 @@ import (
 )
 
 var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	kernel32         = syscall.NewLazyDLL("kernel32.dll")
-	procSendMessage  = user32.NewProc("SendMessageW")
-	procLoadImage    = user32.NewProc("LoadImageW")
-	procGetModHandle = kernel32.NewProc("GetModuleHandleW")
+	user32            = syscall.NewLazyDLL("user32.dll")
+	kernel32          = syscall.NewLazyDLL("kernel32.dll")
+	shell32           = syscall.NewLazyDLL("shell32.dll")
+	procSendMessage   = user32.NewProc("SendMessageW")
+	procLoadImage     = user32.NewProc("LoadImageW")
+	procGetModHandle  = kernel32.NewProc("GetModuleHandleW")
+	procShellExecute  = shell32.NewProc("ShellExecuteW")
 )
 
 const (
@@ -29,6 +31,12 @@ const (
 	iconSmall     = 0
 	iconBig       = 1
 )
+
+func openInEditor(path string) {
+	verb, _ := syscall.UTF16PtrFromString("edit")
+	file, _ := syscall.UTF16PtrFromString(path)
+	procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, 1)
+}
 
 func applyWindowIcon(hwnd unsafe.Pointer) {
 	hInst, _, _ := procGetModHandle.Call(0)
@@ -85,6 +93,7 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool) (s
 
 	w.Bind("goNext", func() { v.navigate(+1) })
 	w.Bind("goPrev", func() { v.navigate(-1) })
+	w.Bind("goOpenEditor", func() { openInEditor(v.filePath) })
 
 	w.Bind("goSaveTheme", func(dark bool) {
 		v.darkTheme = dark
@@ -98,6 +107,9 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool) (s
 	w.SetHtml(initialHTML)
 	return v
 }
+
+// Reload re-reads the file and updates the view. Safe to call from any goroutine.
+func (v *Viewer) Reload() { v.reload() }
 
 // Run starts the event loop. Blocks until the window is closed.
 func (v *Viewer) Run() {
