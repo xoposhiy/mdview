@@ -2,12 +2,14 @@ package viewer
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
 	"unsafe"
 
+	"mdview/internal/applog"
 	"mdview/internal/config"
 
 	webview "github.com/jchv/go-webview2"
@@ -33,9 +35,35 @@ const (
 )
 
 func openInEditor(path string) {
+	applog.Write("openInEditor: path=%s", path)
+
+	// 1. Respect %EDITOR% / %VISUAL% env vars.
+	for _, env := range []string{"EDITOR", "VISUAL"} {
+		if ed := os.Getenv(env); ed != "" {
+			ed = strings.Trim(strings.TrimSpace(ed), `"`)
+			applog.Write("openInEditor: using %s=%s", env, ed)
+			cmd := exec.Command(ed, path)
+			if err := cmd.Start(); err != nil {
+				applog.Write("openInEditor: exec error: %v", err)
+			}
+			return
+		}
+	}
+
+	// 2. Try ShellExecute "edit" verb.
 	verb, _ := syscall.UTF16PtrFromString("edit")
 	file, _ := syscall.UTF16PtrFromString(path)
-	procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, 1)
+	ret, _, _ := procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, 1)
+	applog.Write("openInEditor: ShellExecute edit ret=%d", ret)
+	if ret > 32 {
+		return
+	}
+
+	// 3. Fallback: notepad.
+	applog.Write("openInEditor: falling back to notepad")
+	if err := exec.Command("notepad.exe", path).Start(); err != nil {
+		applog.Write("openInEditor: notepad error: %v", err)
+	}
 }
 
 func applyWindowIcon(hwnd unsafe.Pointer) {
@@ -94,7 +122,10 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 
 	w.Bind("goNext", func() { v.navigate(+1) })
 	w.Bind("goPrev", func() { v.navigate(-1) })
-	w.Bind("goOpenEditor", func() { openInEditor(v.filePath) })
+	w.Bind("goOpenEditor", func() {
+		applog.Write("goOpenEditor called, filePath=%s", v.filePath)
+		openInEditor(v.filePath)
+	})
 
 	w.Bind("goSaveScroll", func(y int) { v.scrollY = y })
 
