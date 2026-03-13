@@ -87,7 +87,19 @@ type Viewer struct {
 	filePath  string
 	darkTheme bool
 	scrollY   int
+	tmpHTML   string // temp file used for Navigate instead of SetHtml
 	renderFn  func([]byte, bool, int, string) (string, error)
+}
+
+// navigateHTML writes html to a temp file and navigates to it via file://.
+// This gives WebView2 a file origin so local images load correctly.
+func (v *Viewer) navigateHTML(html string) {
+	if err := os.WriteFile(v.tmpHTML, []byte(html), 0644); err != nil {
+		v.w.SetHtml(html) // fallback
+		return
+	}
+	url := "file:///" + strings.ReplaceAll(v.tmpHTML, "\\", "/")
+	v.w.Navigate(url)
 }
 
 // New creates a Viewer, binds hotkey handlers, and sets the initial HTML.
@@ -108,7 +120,9 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 	w.SetTitle(TitleFromPath(filePath))
 	w.SetSize(960, 720, webview.HintNone)
 
-	v := &Viewer{w: w, filePath: filePath, darkTheme: dark, scrollY: 0, renderFn: renderFn}
+	tmp, _ := os.CreateTemp("", "mdview_*.html")
+	tmp.Close()
+	v := &Viewer{w: w, filePath: filePath, darkTheme: dark, scrollY: 0, tmpHTML: tmp.Name(), renderFn: renderFn}
 
 	applyWindowIcon(w.Window())
 
@@ -138,7 +152,7 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 		config.Save(config.Config{Theme: theme})
 	})
 
-	w.SetHtml(initialHTML)
+	v.navigateHTML(initialHTML)
 	return v
 }
 
@@ -149,6 +163,7 @@ func (v *Viewer) Reload() { v.reload() }
 func (v *Viewer) Run() {
 	v.w.Run()
 	v.w.Destroy()
+	os.Remove(v.tmpHTML)
 }
 
 func (v *Viewer) reload() {
@@ -161,7 +176,7 @@ func (v *Viewer) reload() {
 		return
 	}
 	v.w.Dispatch(func() {
-		v.w.SetHtml(html)
+		v.navigateHTML(html)
 	})
 }
 
@@ -210,6 +225,6 @@ func (v *Viewer) navigate(offset int) {
 	}
 	v.w.Dispatch(func() {
 		v.w.SetTitle(TitleFromPath(newPath))
-		v.w.SetHtml(html)
+		v.navigateHTML(html)
 	})
 }
