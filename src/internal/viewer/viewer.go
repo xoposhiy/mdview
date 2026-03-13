@@ -58,7 +58,8 @@ type Viewer struct {
 	w         webview.WebView
 	filePath  string
 	darkTheme bool
-	renderFn  func([]byte, bool) (string, error)
+	scrollY   int
+	renderFn  func([]byte, bool, int) (string, error)
 }
 
 // New creates a Viewer, binds hotkey handlers, and sets the initial HTML.
@@ -71,7 +72,7 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "mdview", "webview")
 }
 
-func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool) (string, error)) *Viewer {
+func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, int) (string, error)) *Viewer {
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
@@ -79,7 +80,7 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool) (s
 	w.SetTitle(TitleFromPath(filePath))
 	w.SetSize(960, 720, webview.HintNone)
 
-	v := &Viewer{w: w, filePath: filePath, darkTheme: dark, renderFn: renderFn}
+	v := &Viewer{w: w, filePath: filePath, darkTheme: dark, scrollY: 0, renderFn: renderFn}
 
 	applyWindowIcon(w.Window())
 
@@ -94,6 +95,8 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool) (s
 	w.Bind("goNext", func() { v.navigate(+1) })
 	w.Bind("goPrev", func() { v.navigate(-1) })
 	w.Bind("goOpenEditor", func() { openInEditor(v.filePath) })
+
+	w.Bind("goSaveScroll", func(y int) { v.scrollY = y })
 
 	w.Bind("goSaveTheme", func(dark bool) {
 		v.darkTheme = dark
@@ -122,7 +125,7 @@ func (v *Viewer) reload() {
 	if err != nil {
 		return
 	}
-	html, err := v.renderFn(content, v.darkTheme)
+	html, err := v.renderFn(content, v.darkTheme, v.scrollY)
 	if err != nil {
 		return
 	}
@@ -168,11 +171,12 @@ func (v *Viewer) navigate(offset int) {
 	if err != nil {
 		return
 	}
-	html, err := v.renderFn(content, v.darkTheme)
+	v.filePath = newPath
+	v.scrollY = 0
+	html, err := v.renderFn(content, v.darkTheme, 0)
 	if err != nil {
 		return
 	}
-	v.filePath = newPath
 	v.w.Dispatch(func() {
 		v.w.SetTitle(TitleFromPath(newPath))
 		v.w.SetHtml(html)

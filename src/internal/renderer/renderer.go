@@ -29,15 +29,16 @@ var tmpl = template.Must(template.New("page").Parse(pageTemplate))
 type pageData struct {
 	Content   template.HTML
 	DarkTheme bool
+	ScrollY   int
 }
 
 // Render converts Markdown content to a complete HTML page (light theme).
 func Render(content []byte) (string, error) {
-	return RenderWithTheme(content, false)
+	return RenderWithTheme(content, false, 0)
 }
 
 // RenderWithTheme converts Markdown content to a complete HTML page.
-func RenderWithTheme(content []byte, dark bool) (string, error) {
+func RenderWithTheme(content []byte, dark bool, scrollY int) (string, error) {
 	var body bytes.Buffer
 	if err := md.Convert(content, &body); err != nil {
 		return "", err
@@ -46,6 +47,7 @@ func RenderWithTheme(content []byte, dark bool) (string, error) {
 	data := pageData{
 		Content:   template.HTML(body.String()),
 		DarkTheme: dark,
+		ScrollY:   scrollY,
 	}
 
 	var out bytes.Buffer

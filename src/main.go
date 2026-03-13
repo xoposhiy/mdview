@@ -27,13 +27,14 @@ func main() {
 	cfg := config.Load()
 	dark := cfg.Theme == "dark"
 
-	html, err := renderer.RenderWithTheme(content, dark)
+	html, err := renderer.RenderWithTheme(content, dark, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error rendering: %v\n", err)
 		os.Exit(1)
 	}
 
 	v := viewer.New(path, html, dark, renderer.RenderWithTheme)
+
 
 	w := watcher.NewFsnotifyWatcher(path)
 	w.OnChange(func() { v.Reload() })
