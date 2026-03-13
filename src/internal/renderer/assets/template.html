@@ -66,6 +66,17 @@ del { opacity: 0.55; }
 #help-box td:first-child { font-family: Consolas, monospace; font-weight: 600; white-space: nowrap; }
 body.dark #help-box { background: #1c1810; border-color: #4a4430; color: #e0d5b0; }
 
+/* Toast */
+#toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: #333; color: #fff; padding: 9px 22px; border-radius: 6px;
+    font-size: 15px; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 2000;
+}
+#toast.show { opacity: 0.92; }
+body.dark #toast { background: #555; }
+
 /* Dark theme */
 body.dark { background: #1c1810 !important; color: #e0d5b0 !important; }
 body.dark table { }
@@ -83,6 +94,7 @@ body.dark hr { border-top-color: #5a4e20; }
 </style>
 </head>
 <body class="{{if .DarkTheme}}dark{{end}}" style="background:#fff2cf; color:#000000; font-family:sans-serif,Consolas,Arial; font-size:18px; max-width:820px; margin:0 auto; padding:40px 32px;">
+<div id="toast"></div>
 <div id="help-overlay">
   <div id="help-box">
     <h2>Keyboard shortcuts</h2>
@@ -91,6 +103,7 @@ body.dark hr { border-top-color: #5a4e20; }
       <tr><td>W</td><td>Toggle wide / narrow layout</td></tr>
       <tr><td>D</td><td>Toggle dark / light theme</td></tr>
       <tr><td>E</td><td>Open in editor</td></tr>
+      <tr><td>Ctrl+S</td><td>Save as HTML</td></tr>
       <tr><td>F5, Ctrl+R</td><td>Reload file</td></tr>
       <tr><td>Esc</td><td>Quit</td></tr>
       <tr><td>?, H</td><td>Show / hide this menu</td></tr>
@@ -108,6 +121,14 @@ window.addEventListener('scroll', function() {
     clearTimeout(_scrollTimer);
     _scrollTimer = setTimeout(function() { goSaveScroll(Math.round(window.scrollY)); }, 100);
 });
+var _toastTimer;
+function showToast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(function() { t.classList.remove('show'); }, 2500);
+}
 document.getElementById('help-overlay').addEventListener('click', function(e) {
     if (e.target === this) this.classList.remove('visible');
 });
@@ -116,6 +137,11 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
         e.preventDefault();
         goReload();
+    }
+    if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        goSaveHTML().then(function(msg) { showToast(msg); });
+        return;
     }
     if (e.key === 'w' || e.key === 'W') {
         var b = document.body;

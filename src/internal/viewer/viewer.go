@@ -136,6 +136,24 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 
 	w.Bind("goNext", func() { v.navigate(+1) })
 	w.Bind("goPrev", func() { v.navigate(-1) })
+
+	w.Bind("goSaveHTML", func() string {
+		content, err := os.ReadFile(v.filePath)
+		if err != nil {
+			return "Error: " + err.Error()
+		}
+		html, err := v.renderFn(content, v.darkTheme, 0, filepath.Dir(v.filePath))
+		if err != nil {
+			return "Error: " + err.Error()
+		}
+		ext := filepath.Ext(v.filePath)
+		outPath := v.filePath[:len(v.filePath)-len(ext)] + ".html"
+		if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
+			return "Error: " + err.Error()
+		}
+		return "Saved: " + filepath.Base(outPath)
+	})
+
 	w.Bind("goOpenEditor", func() {
 		applog.Write("goOpenEditor called, filePath=%s", v.filePath)
 		openInEditor(v.filePath)
