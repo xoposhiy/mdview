@@ -228,16 +228,21 @@ mjx-container svg { color: var(--fg); }
 #help-box td:first-child { font-family: Consolas, monospace; font-weight: 600; white-space: nowrap; }
 
 /* ----- Settings panel ----- */
-#settings-btn {
-    position: fixed; top: 16px; right: 16px; z-index: 1500;
+#settings-btn, #back-btn {
+    position: fixed; top: 16px; z-index: 1500;
     width: 40px; height: 40px; border-radius: 50%;
     border: 1px solid var(--box-border); background: var(--box-bg); color: var(--fg);
     font-size: 19px; cursor: pointer; opacity: 0.5;
     transition: opacity 0.15s, transform 0.15s;
-    display: flex; align-items: center; justify-content: center;
+    align-items: center; justify-content: center;
     box-shadow: 0 2px 8px rgba(0,0,0,0.18);
 }
+#settings-btn { right: 16px; display: flex; }
 #settings-btn:hover { opacity: 1; transform: rotate(30deg); }
+/* Shown only while there is somewhere to go back to (see goCanGoBack). */
+#back-btn { left: 16px; display: none; }
+#back-btn.visible { display: flex; }
+#back-btn:hover { opacity: 1; transform: translateX(-2px); }
 .setting-group { margin: 16px 0; }
 .setting-group:first-of-type { margin-top: 4px; }
 .setting-label { font-weight: 600; margin-bottom: 9px; opacity: 0.85; font-size: 0.95em; }
@@ -275,6 +280,7 @@ window.MathJax = {
 </head>
 <body data-theme="{{.Theme}}" data-font="{{.Font}}" style="font-size:{{.FontSize}}px">
 <div id="toast"></div>
+<button id="back-btn" title="Back (Backspace)">&#8592;</button>
 <button id="settings-btn" title="Appearance (S)">&#9881;</button>
 
 <div id="help-overlay" class="overlay">
@@ -282,6 +288,7 @@ window.MathJax = {
     <h2>Keyboard shortcuts</h2>
     <table>
       <tr><td>← / →</td><td>Previous / next file</td></tr>
+      <tr><td>Backspace, Alt+←</td><td>Back</td></tr>
       <tr><td>S</td><td>Appearance (theme, font, size)</td></tr>
       <tr><td>W</td><td>Toggle wide / narrow layout</td></tr>
       <tr><td>D</td><td>Toggle light / dark theme</td></tr>
@@ -321,10 +328,14 @@ if (typeof goSaveTheme === 'undefined')    { goSaveTheme    = function() {}; }
 if (typeof goSaveFont === 'undefined')     { goSaveFont     = function() {}; }
 if (typeof goSaveFontSize === 'undefined') { goSaveFontSize = function() {}; }
 if (typeof goSaveScroll === 'undefined')   { goSaveScroll   = function() {}; }
-if (typeof goPrev === 'undefined')         { goPrev         = function() {}; }
-if (typeof goNext === 'undefined')         { goNext         = function() {}; }
 if (typeof goOpenEditor === 'undefined')   { goOpenEditor   = function() {}; }
+// Value-returning bindings resolve to a message the page shows as a toast.
+if (typeof goPrev === 'undefined')         { goPrev         = function() { return Promise.resolve(''); }; }
+if (typeof goNext === 'undefined')         { goNext         = function() { return Promise.resolve(''); }; }
+if (typeof goOpenLink === 'undefined')     { goOpenLink     = function() { return Promise.resolve(''); }; }
+if (typeof goBack === 'undefined')         { goBack         = function() { return Promise.resolve(''); }; }
 if (typeof goSaveHTML === 'undefined')     { goSaveHTML     = function() { return Promise.resolve(''); }; }
+if (typeof goCanGoBack === 'undefined')    { goCanGoBack    = function() { return Promise.resolve(false); }; }
 
 var THEMES = [
   { id: 'light',           name: 'Cream',           color: '#c8b860' },
@@ -409,6 +420,25 @@ function closeOverlays() {
   document.querySelectorAll('.overlay.visible').forEach(function(o) { o.classList.remove('visible'); });
 }
 
+function toastIfMsg(msg) { if (msg) showToast(msg); }
+function goBackAndToast() { goBack().then(toastIfMsg); }
+
+/* ----- Link handling -----
+   Send the RAW href attribute, not anchor.href: this page is served from a
+   temp file, so a relative href would resolve against %TEMP% instead of the
+   document's own directory. Go resolves it and decides where it opens.
+   Delegated on document (not .content) so frontmatter-table links work too. */
+document.addEventListener('click', function(e) {
+  var a = e.target.closest && e.target.closest('a[href]');
+  if (!a) return;
+  var href = a.getAttribute('href');
+  if (!href || href.charAt(0) === '#') return; // in-page anchor: let it scroll
+  e.preventDefault();
+  goOpenLink(href).then(toastIfMsg);
+});
+
+document.getElementById('back-btn').addEventListener('click', goBackAndToast);
+
 function initWideTables() {
     var content = document.querySelector('.content');
     if (!content) return;
@@ -449,6 +479,11 @@ window.addEventListener('load', function() {
     window.focus();
     window.scrollTo(0, {{.ScrollY}});
     initWideTables();
+    // Every navigation is a full page load, so this is the only moment the
+    // back button's visibility needs re-evaluating.
+    goCanGoBack().then(function(can) {
+        document.getElementById('back-btn').classList.toggle('visible', can);
+    });
 });
 var _scrollTimer;
 window.addEventListener('scroll', function() {
@@ -479,6 +514,12 @@ document.addEventListener('keydown', function(e) {
         goSaveHTML().then(function(msg) { showToast(msg); });
         return;
     }
+    // Must be handled before the modifier guard below, which would swallow it.
+    if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goBackAndToast();
+        return;
+    }
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     // While a form control (e.g. the size slider) is focused, let it handle
     // its own keys (arrows, etc.) instead of triggering view shortcuts.
@@ -494,8 +535,10 @@ document.addEventListener('keydown', function(e) {
         return;
     }
     if (e.key === 'e' || e.key === 'E') { goOpenEditor(); return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); goPrev(); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); return; }
+    // Below the INPUT guard above, so the size slider keeps its own Backspace.
+    if (e.key === 'Backspace') { e.preventDefault(); goBackAndToast(); return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); goPrev().then(toastIfMsg); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); goNext().then(toastIfMsg); return; }
     if (e.key === '?' || e.key === 'h' || e.key === 'H') {
         document.getElementById('help-overlay').classList.toggle('visible');
     }

@@ -11,3 +11,6 @@ src/*.syso
 tests/node_modules/
 tests/playwright-report/
 tests/test-results/
+
+# Screenshots produced by tests/links/verify.ps1
+tests/links/*.png

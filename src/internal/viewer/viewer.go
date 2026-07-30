@@ -16,13 +16,13 @@ import (
 )
 
 var (
-	user32            = syscall.NewLazyDLL("user32.dll")
-	kernel32          = syscall.NewLazyDLL("kernel32.dll")
-	shell32           = syscall.NewLazyDLL("shell32.dll")
-	procSendMessage   = user32.NewProc("SendMessageW")
-	procLoadImage     = user32.NewProc("LoadImageW")
-	procGetModHandle  = kernel32.NewProc("GetModuleHandleW")
-	procShellExecute  = shell32.NewProc("ShellExecuteW")
+	user32           = syscall.NewLazyDLL("user32.dll")
+	kernel32         = syscall.NewLazyDLL("kernel32.dll")
+	shell32          = syscall.NewLazyDLL("shell32.dll")
+	procSendMessage  = user32.NewProc("SendMessageW")
+	procLoadImage    = user32.NewProc("LoadImageW")
+	procGetModHandle = kernel32.NewProc("GetModuleHandleW")
+	procShellExecute = shell32.NewProc("ShellExecuteW")
 )
 
 const (
@@ -32,7 +32,28 @@ const (
 	wmSetIcon     = 0x0080
 	iconSmall     = 0
 	iconBig       = 1
+	swShowNormal  = 1
 )
+
+// openExternal hands target to the shell, which routes URLs to the default
+// browser and local files to their registered application. It returns a
+// message for the user, or "" on success.
+func openExternal(target string) string {
+	applog.Write("openExternal: %s", target)
+
+	verb, _ := syscall.UTF16PtrFromString("open")
+	file, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		applog.Write("openExternal: bad target: %v", err)
+		return "Cannot open: " + target
+	}
+	ret, _, _ := procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, swShowNormal)
+	if ret <= 32 {
+		applog.Write("openExternal: ShellExecute ret=%d", ret)
+		return "Cannot open: " + target
+	}
+	return ""
+}
 
 func openInEditor(path string) {
 	applog.Write("openInEditor: path=%s", path)
@@ -53,7 +74,7 @@ func openInEditor(path string) {
 	// 2. Try ShellExecute "edit" verb.
 	verb, _ := syscall.UTF16PtrFromString("edit")
 	file, _ := syscall.UTF16PtrFromString(path)
-	ret, _, _ := procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, 1)
+	ret, _, _ := procShellExecute.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(file)), 0, 0, swShowNormal)
 	applog.Write("openInEditor: ShellExecute edit ret=%d", ret)
 	if ret > 32 {
 		return
@@ -87,7 +108,8 @@ type Viewer struct {
 	filePath string
 	prefs    config.Config
 	scrollY  int
-	tmpHTML  string // temp file used for Navigate instead of SetHtml
+	history  history // documents visited before the current one
+	tmpHTML  string  // temp file used for Navigate instead of SetHtml
 	renderFn func([]byte, config.Config, int, string) (string, error)
 }
 
@@ -95,6 +117,7 @@ type Viewer struct {
 // This gives WebView2 a file origin so local images load correctly.
 func (v *Viewer) navigateHTML(html string) {
 	if err := os.WriteFile(v.tmpHTML, []byte(html), 0644); err != nil {
+		applog.Write("navigateHTML: WriteFile failed: %v", err)
 		v.w.SetHtml(html) // fallback
 		return
 	}
@@ -134,8 +157,27 @@ func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte
 		v.reload()
 	})
 
-	w.Bind("goNext", func() { v.navigate(+1) })
-	w.Bind("goPrev", func() { v.navigate(-1) })
+	w.Bind("goNext", func() string { return v.navigate(+1) })
+	w.Bind("goPrev", func() string { return v.navigate(-1) })
+
+	// goOpenLink receives the raw href attribute, not the anchor's resolved
+	// href: the page is served from a temp file, so relative hrefs would
+	// otherwise resolve against %TEMP% instead of the document's directory.
+	w.Bind("goOpenLink", func(href string) string {
+		kind, target := classifyLink(href, filepath.Dir(v.filePath))
+		applog.Write("goOpenLink: href=%s kind=%d target=%s", href, kind, target)
+		switch kind {
+		case linkInPage:
+			return ""
+		case linkMarkdown:
+			return v.open(target)
+		default:
+			return openExternal(target)
+		}
+	})
+
+	w.Bind("goBack", func() string { return v.back() })
+	w.Bind("goCanGoBack", func() bool { return v.history.canGoBack() })
 
 	w.Bind("goSaveHTML", func() string {
 		content, err := os.ReadFile(v.filePath)
@@ -190,25 +232,60 @@ func (v *Viewer) Run() {
 	os.Remove(v.tmpHTML)
 }
 
-func (v *Viewer) reload() {
-	content, err := os.ReadFile(v.filePath)
+func (v *Viewer) reload() { v.show(v.filePath, v.scrollY) }
+
+// show renders path into the window at the given scroll position. It updates
+// v.filePath and v.scrollY but does not touch history.
+func (v *Viewer) show(path string, scrollY int) error {
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return err
 	}
-	html, err := v.renderFn(content, v.prefs, v.scrollY, filepath.Dir(v.filePath))
+	html, err := v.renderFn(content, v.prefs, scrollY, filepath.Dir(path))
 	if err != nil {
-		return
+		return err
 	}
+	v.filePath = path
+	v.scrollY = scrollY
 	v.w.Dispatch(func() {
+		v.w.SetTitle(TitleFromPath(path))
 		v.navigateHTML(html)
 	})
+	return nil
 }
 
-func (v *Viewer) navigate(offset int) {
+// open records the current document in history, then shows path at the top.
+// History is only pushed once the load succeeds, so a broken link leaves both
+// the displayed document and the history untouched.
+func (v *Viewer) open(path string) string {
+	prevPath, prevScroll := v.filePath, v.scrollY
+	if err := v.show(path, 0); err != nil {
+		applog.Write("open: %s: %v", path, err)
+		return "Not found: " + filepath.Base(path)
+	}
+	v.history.push(prevPath, prevScroll)
+	return ""
+}
+
+// back returns to the previously visited document at the scroll position it was
+// left at. A no-op when there is no history.
+func (v *Viewer) back() string {
+	entry, ok := v.history.pop()
+	if !ok {
+		return ""
+	}
+	if err := v.show(entry.path, entry.scrollY); err != nil {
+		applog.Write("back: %s: %v", entry.path, err)
+		return "Not found: " + filepath.Base(entry.path)
+	}
+	return ""
+}
+
+func (v *Viewer) navigate(offset int) string {
 	dir := filepath.Dir(v.filePath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return ""
 	}
 
 	var files []string
@@ -228,27 +305,13 @@ func (v *Viewer) navigate(offset int) {
 		}
 	}
 	if idx == -1 {
-		return
+		return ""
 	}
 
 	next := idx + offset
 	if next < 0 || next >= len(files) {
-		return
+		return ""
 	}
 
-	newPath := filepath.Join(dir, files[next])
-	content, err := os.ReadFile(newPath)
-	if err != nil {
-		return
-	}
-	v.filePath = newPath
-	v.scrollY = 0
-	html, err := v.renderFn(content, v.prefs, 0, filepath.Dir(newPath))
-	if err != nil {
-		return
-	}
-	v.w.Dispatch(func() {
-		v.w.SetTitle(TitleFromPath(newPath))
-		v.navigateHTML(html)
-	})
+	return v.open(filepath.Join(dir, files[next]))
 }
