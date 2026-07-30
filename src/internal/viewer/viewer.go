@@ -83,12 +83,12 @@ func TitleFromPath(path string) string {
 
 // Viewer manages the WebView2 window.
 type Viewer struct {
-	w         webview.WebView
-	filePath  string
-	darkTheme bool
-	scrollY   int
-	tmpHTML   string // temp file used for Navigate instead of SetHtml
-	renderFn  func([]byte, bool, int, string) (string, error)
+	w        webview.WebView
+	filePath string
+	prefs    config.Config
+	scrollY  int
+	tmpHTML  string // temp file used for Navigate instead of SetHtml
+	renderFn func([]byte, config.Config, int, string) (string, error)
 }
 
 // navigateHTML writes html to a temp file and navigates to it via file://.
@@ -112,7 +112,7 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "mdview", "webview")
 }
 
-func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, int, string) (string, error)) *Viewer {
+func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte, config.Config, int, string) (string, error)) *Viewer {
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
@@ -122,7 +122,7 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 
 	tmp, _ := os.CreateTemp("", "mdview_*.html")
 	tmp.Close()
-	v := &Viewer{w: w, filePath: filePath, darkTheme: dark, scrollY: 0, tmpHTML: tmp.Name(), renderFn: renderFn}
+	v := &Viewer{w: w, filePath: filePath, prefs: prefs, scrollY: 0, tmpHTML: tmp.Name(), renderFn: renderFn}
 
 	applyWindowIcon(w.Window())
 
@@ -142,7 +142,7 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 		if err != nil {
 			return "Error: " + err.Error()
 		}
-		html, err := v.renderFn(content, v.darkTheme, 0, filepath.Dir(v.filePath))
+		html, err := v.renderFn(content, v.prefs, 0, filepath.Dir(v.filePath))
 		if err != nil {
 			return "Error: " + err.Error()
 		}
@@ -161,13 +161,19 @@ func New(filePath, initialHTML string, dark bool, renderFn func([]byte, bool, in
 
 	w.Bind("goSaveScroll", func(y int) { v.scrollY = y })
 
-	w.Bind("goSaveTheme", func(dark bool) {
-		v.darkTheme = dark
-		theme := "light"
-		if dark {
-			theme = "dark"
-		}
-		config.Save(config.Config{Theme: theme})
+	w.Bind("goSaveTheme", func(theme string) {
+		v.prefs.Theme = theme
+		config.Save(v.prefs)
+	})
+
+	w.Bind("goSaveFont", func(font string) {
+		v.prefs.Font = font
+		config.Save(v.prefs)
+	})
+
+	w.Bind("goSaveFontSize", func(size int) {
+		v.prefs.FontSize = size
+		config.Save(v.prefs)
 	})
 
 	v.navigateHTML(initialHTML)
@@ -189,7 +195,7 @@ func (v *Viewer) reload() {
 	if err != nil {
 		return
 	}
-	html, err := v.renderFn(content, v.darkTheme, v.scrollY, filepath.Dir(v.filePath))
+	html, err := v.renderFn(content, v.prefs, v.scrollY, filepath.Dir(v.filePath))
 	if err != nil {
 		return
 	}
@@ -237,7 +243,7 @@ func (v *Viewer) navigate(offset int) {
 	}
 	v.filePath = newPath
 	v.scrollY = 0
-	html, err := v.renderFn(content, v.darkTheme, 0, filepath.Dir(newPath))
+	html, err := v.renderFn(content, v.prefs, 0, filepath.Dir(newPath))
 	if err != nil {
 		return
 	}

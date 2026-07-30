@@ -6,6 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
 	github.com/yuin/goldmark v1.7.16
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

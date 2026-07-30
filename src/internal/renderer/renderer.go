@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	"mdview/internal/config"
+
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
@@ -17,8 +19,11 @@ import (
 //go:embed assets/template.html
 var pageTemplate string
 
+//go:embed assets/mathjax.js
+var mathJaxScript string
+
 var md = goldmark.New(
-	goldmark.WithExtensions(extension.GFM),
+	goldmark.WithExtensions(extension.GFM, Math),
 	goldmark.WithParserOptions(
 		parser.WithAutoHeadingID(),
 	),
@@ -30,9 +35,13 @@ var md = goldmark.New(
 var tmpl = template.Must(template.New("page").Parse(pageTemplate))
 
 type pageData struct {
-	Content   template.HTML
-	DarkTheme bool
-	ScrollY   int
+	Frontmatter template.HTML
+	Content     template.HTML
+	Theme       string
+	Font        string
+	FontSize    int
+	ScrollY     int
+	MathJax     template.JS
 }
 
 var imgSrcRe = regexp.MustCompile(`src="([^"]*)"`)
@@ -61,23 +70,42 @@ func resolveImageSrcs(html, baseDir string) string {
 	})
 }
 
-// Render converts Markdown content to a complete HTML page (light theme).
+// Render converts Markdown content to a complete HTML page (default prefs).
 func Render(content []byte) (string, error) {
-	return RenderWithTheme(content, false, 0, "")
+	return RenderWithTheme(content, config.Default(), 0, "")
 }
 
-// RenderWithTheme converts Markdown content to a complete HTML page.
-// baseDir is the directory of the source file; used to resolve relative image paths.
-func RenderWithTheme(content []byte, dark bool, scrollY int, baseDir string) (string, error) {
+// RenderWithTheme converts Markdown content to a complete HTML page styled
+// according to prefs (theme, font, size). baseDir is the directory of the
+// source file; used to resolve relative image paths. Empty/zero pref fields
+// fall back to defaults so partial or stray callers still produce a valid page.
+func RenderWithTheme(content []byte, prefs config.Config, scrollY int, baseDir string) (string, error) {
+	def := config.Default()
+	if prefs.Theme == "" {
+		prefs.Theme = def.Theme
+	}
+	if prefs.Font == "" {
+		prefs.Font = def.Font
+	}
+	if prefs.FontSize == 0 {
+		prefs.FontSize = def.FontSize
+	}
+
+	frontmatter, markdown := extractFrontmatter(content)
+
 	var body bytes.Buffer
-	if err := md.Convert(content, &body); err != nil {
+	if err := md.Convert(markdown, &body); err != nil {
 		return "", err
 	}
 
 	data := pageData{
-		Content:   template.HTML(resolveImageSrcs(body.String(), baseDir)),
-		DarkTheme: dark,
-		ScrollY:   scrollY,
+		Frontmatter: frontmatter,
+		Content:     template.HTML(resolveImageSrcs(body.String(), baseDir)),
+		Theme:       prefs.Theme,
+		Font:        prefs.Font,
+		FontSize:    prefs.FontSize,
+		ScrollY:     scrollY,
+		MathJax:     template.JS(mathJaxScript),
 	}
 
 	var out bytes.Buffer

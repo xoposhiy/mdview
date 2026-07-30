@@ -3,3 +3,11 @@ dist/
 debug.png
 src/vendor/
 src/*.syso
+
+# Cygwin/Git-Bash crash artifacts
+*.stackdump
+
+# Playwright
+tests/node_modules/
+tests/playwright-report/
+tests/test-results/
