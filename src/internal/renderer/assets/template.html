@@ -182,6 +182,10 @@ blockquote p { margin: 0.4em 0; }
 /* Links */
 a { color: var(--link); text-decoration: underline; }
 a:hover { color: var(--link-hover); }
+/* A wikilink whose target does not exist. Resolved ones deliberately inherit
+   the rule above, so they look like every other link. Written against --fg,
+   which every theme block defines, so no theme needs its own colour. */
+a.wikilink.broken { color: var(--fg); opacity: .55; text-decoration-style: dotted; }
 
 /* Lists */
 ul, ol { padding-left: 1.8em; margin: 0.6em 0; }

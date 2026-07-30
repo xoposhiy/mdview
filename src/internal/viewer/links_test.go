@@ -25,6 +25,13 @@ func TestClassifyLink(t *testing.T) {
 		{"percent-decoded path", "other%20file.md", linkMarkdown, `C:\docs\other file.md`},
 		{"fragment stripped from md", "other.md#sec", linkMarkdown, `C:\docs\other.md`},
 		{"query stripped from local file", "docs/spec.pdf?v=2", linkExternal, `C:\docs\docs\spec.pdf`},
+
+		// The renderer's wikilinks emit an already-resolved absolute path with
+		// backslashes, so these two forms are what [[note]] and [[note#head]]
+		// hand back through goOpenLink.
+		{"backslash absolute md path", `C:\vault\note.md`, linkMarkdown, `C:\vault\note.md`},
+		{"backslash absolute path with fragment", `C:\vault\note.md#head`, linkMarkdown, `C:\vault\note.md`},
+		{"backslash absolute non-md path", `C:\vault\diagram.png`, linkExternal, `C:\vault\diagram.png`},
 	}
 
 	for _, c := range cases {

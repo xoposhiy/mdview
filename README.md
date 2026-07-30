@@ -17,6 +17,10 @@ mdview file.md
   without mangling underscores or braces
 - Obsidian-style YAML frontmatter shown as a properties table above the
   document; nested keys flatten to `source.file`, list values render as pills
+- Obsidian-style wikilinks — `[[note]]`, `[[note|label]]`, `[[folder/note]]` —
+  resolved beside the document first and then from the vault root, the nearest
+  folder above holding `.obsidian/`. Targets that do not exist are dimmed
+  instead of pretending to work
 - Local images resolved relative to the file
 - Sortable table headers — click to sort, click again to reverse
 - Over-wide tables get their own horizontal scroller instead of breaking the

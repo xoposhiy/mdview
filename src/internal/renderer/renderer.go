@@ -23,7 +23,7 @@ var pageTemplate string
 var mathJaxScript string
 
 var md = goldmark.New(
-	goldmark.WithExtensions(extension.GFM, Math),
+	goldmark.WithExtensions(extension.GFM, Math, Wikilink),
 	goldmark.WithParserOptions(
 		parser.WithAutoHeadingID(),
 	),
@@ -93,8 +93,13 @@ func RenderWithTheme(content []byte, prefs config.Config, scrollY int, baseDir s
 
 	frontmatter, markdown := extractFrontmatter(content)
 
+	// baseDir travels to the wikilink parser through the parse context: md is a
+	// package-level singleton, so it cannot carry per-document state.
+	ctx := parser.NewContext()
+	ctx.Set(baseDirKey, baseDir)
+
 	var body bytes.Buffer
-	if err := md.Convert(markdown, &body); err != nil {
+	if err := md.Convert(markdown, &body, parser.WithContext(ctx)); err != nil {
 		return "", err
 	}
 
