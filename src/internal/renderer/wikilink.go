@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -42,6 +43,35 @@ func vaultRoot(dir string) string {
 	}
 }
 
+// maxParentLevels bounds how far above the document's own directory a wikilink
+// target is looked for. Vaults are not always marked — a folder of notes copied
+// out of one, or never in one, has no .obsidian — and in practice a target
+// written relative to "the top of this pile of notes" sits a handful of folders
+// up. Four levels covers that without letting resolution wander off into
+// unrelated trees or turn every link into a long walk of stat calls.
+const maxParentLevels = 4
+
+// searchBases returns the directories a wikilink target is tried against, in
+// the order they are tried: the document's own directory, then up to
+// maxParentLevels ancestors, then the vault root when the marker sits further
+// up still. Nearest first is what makes a note beside the document win over a
+// same-named note above it.
+func searchBases(baseDir string) []string {
+	bases := []string{baseDir}
+	for d := baseDir; len(bases) <= maxParentLevels; {
+		parent := filepath.Dir(d)
+		if parent == d { // volume root
+			break
+		}
+		d = parent
+		bases = append(bases, d)
+	}
+	if root := vaultRoot(baseDir); root != "" && !slices.Contains(bases, root) {
+		bases = append(bases, root)
+	}
+	return bases
+}
+
 // splitFragment splits a wikilink target at its first "#". The returned
 // fragment keeps the "#" so it can be appended to an href unchanged.
 func splitFragment(target string) (path, fragment string) {
@@ -62,9 +92,10 @@ func hasMarkdownExt(path string) bool {
 // resolveWikilink turns a wikilink target into an href and reports whether the
 // file it names exists.
 //
-// Candidates are tried verbatim and then with ".md" appended, first under
-// baseDir and then under the vault root. The first existing file wins, so a
-// note beside the document beats a same-named note at the vault root. Trying
+// Candidates are tried verbatim and then with ".md" appended, under each
+// directory searchBases lists — the document's own directory, its nearest
+// ancestors, and the vault root. The first existing file wins, so a note beside
+// the document beats a same-named note further up. Trying
 // the target verbatim first is what makes [[diagram.png]] resolve to the image
 // while [[v1.2 release notes]] — whose extension is meaningless — still finds
 // its .md file, with no extension whitelist to maintain.
@@ -94,11 +125,7 @@ func resolveWikilink(target, baseDir string) (string, bool) {
 		return filepath.ToSlash(fallback) + fragment, true
 	}
 
-	bases := []string{baseDir}
-	if root := vaultRoot(baseDir); root != "" && root != baseDir {
-		bases = append(bases, root)
-	}
-	for _, base := range bases {
+	for _, base := range searchBases(baseDir) {
 		for _, candidate := range candidates {
 			abs := filepath.Join(base, candidate)
 			if info, err := os.Stat(abs); err == nil && !info.IsDir() {

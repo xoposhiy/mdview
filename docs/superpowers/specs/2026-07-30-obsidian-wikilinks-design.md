@@ -44,17 +44,25 @@ Only unresolved ones are visually distinct.
 
 ## Resolution
 
-For target `T`, base directories are tried in order — the document's directory,
-then the vault root — and within each, `base/T` then `base/T.md`. The first
-**existing** file wins:
+For target `T`, base directories are tried nearest first — the document's
+directory, then up to `maxParentLevels` (4) ancestors, then the vault root when
+its marker sits further up still — and within each, `base/T` then `base/T.md`.
+The first **existing** file wins:
 
 ```
-dir/T          dir/T.md          root/T          root/T.md
+dir/T   dir/T.md   dir/../T   dir/../T.md   …   root/T   root/T.md
 ```
 
 The `.md` candidate is skipped when `T` already ends in `.md` or `.markdown`
-(case-insensitive). The root candidates are skipped when no vault root was
-found, or when the root is the document's own directory.
+(case-insensitive). The upward walk stops at the volume root, and the vault root
+is skipped when there is no marker or when it is already one of the ancestors
+walked.
+
+Climbing a bounded number of parents unconditionally, rather than only to a
+`.obsidian` marker, is what makes root-relative links work in a folder of notes
+that was never a vault or was copied out of one. Four levels covers the nesting
+real note trees use while keeping resolution from wandering into unrelated
+directories.
 
 Trying `T` verbatim before appending `.md` removes any need to guess at
 extensions from the name. `[[diagram.png]]` is found as-is on the first
@@ -69,8 +77,11 @@ toast name the file the author meant.
 `vaultRoot(dir)` walks from `dir` up through its ancestors, returning the first
 that contains a `.obsidian` **directory**. It stops when `filepath.Dir(d) == d`
 — the volume root — and returns `""` when there is no marker anywhere above.
-With no vault, resolution therefore reduces to "the document's own directory",
-which is how ordinary Markdown links in mdview already behave.
+With no vault, resolution therefore reduces to the document's directory plus its
+four nearest ancestors; the marker only extends the reach beyond that.
+
+`searchBases(dir)` assembles that list, and is where the order — and the bound —
+lives.
 
 ### Fragments
 
@@ -119,12 +130,13 @@ Resolution happens at parse time, where `parser.Context` is available.
 
 ```go
 func resolveWikilink(target, baseDir string) (href string, ok bool)
+func searchBases(baseDir string) []string
 func vaultRoot(dir string) string
 ```
 
-Free functions rather than an injected interface: there are two of them, both
-are pure with respect to their arguments, and both are directly testable against
-a `t.TempDir()`. A `LinkResolver` interface would buy nothing here.
+Free functions rather than an injected interface: they are pure with respect to
+their arguments and directly testable against a `t.TempDir()`. A `LinkResolver`
+interface would buy nothing here.
 
 ### `src/internal/renderer/renderer.go` (modified)
 
@@ -193,7 +205,11 @@ real files and a real `.obsidian/` directory:
 - Vault-root path from a nested document: `.obsidian/` at the root, document in
   `daily/`, link `[[projects/spec]]`.
 - Nearest-wins: the same basename present both beside the document and at the
-  vault root resolves to the one beside the document.
+  vault root resolves to the one beside the document; the same basename in the
+  immediate parent and higher up resolves to the immediate parent.
+- Parents without a marker: a hit in the parent of an unmarked directory
+  resolves; the fourth parent still resolves, the fifth does not; with a marker,
+  a root above the fourth parent still resolves.
 - Broken link carries `class="wikilink broken"` and an `.md` href.
 - `[[note.md]]` does not become `note.md.md`.
 - `[[diagram.png]]` resolves to the png, not to `diagram.png.md`.

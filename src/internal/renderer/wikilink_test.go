@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"fmt"
 	"html/template"
 	"os"
 	"path/filepath"
@@ -125,17 +126,63 @@ func TestResolveNearestWinsOverVaultRoot(t *testing.T) {
 	checkResolve(t, "note", docDir, want, true)
 }
 
-func TestResolveVaultRootIgnoredWithoutMarker(t *testing.T) {
+// A parent directory is searched whether or not a vault marker is present: the
+// upward walk is bounded by maxParentLevels, not by .obsidian.
+func TestResolveFromParentWithoutVaultMarker(t *testing.T) {
+	root := t.TempDir()
+	requireNoVaultAbove(t, root)
+	want := touch(t, filepath.Join(root, "note.md"))
+	docDir := mkDir(t, filepath.Join(root, "daily"))
+	checkResolve(t, "note", docDir, want, true)
+}
+
+// deepDir returns root/l1/.../lN, the directory N levels below root.
+func deepDir(t *testing.T, root string, levels int) string {
+	t.Helper()
+	dir := root
+	for i := 1; i <= levels; i++ {
+		dir = filepath.Join(dir, fmt.Sprintf("l%d", i))
+	}
+	return mkDir(t, dir)
+}
+
+// The fourth parent is still searched; the fifth is not.
+func TestResolveFromFourthParent(t *testing.T) {
+	root := t.TempDir()
+	requireNoVaultAbove(t, root)
+	want := touch(t, filepath.Join(root, "note.md"))
+	checkResolve(t, "note", deepDir(t, root, maxParentLevels), want, true)
+}
+
+func TestResolveStopsAboveFourthParent(t *testing.T) {
 	root := t.TempDir()
 	requireNoVaultAbove(t, root)
 	touch(t, filepath.Join(root, "note.md"))
-	docDir := mkDir(t, filepath.Join(root, "daily"))
+	docDir := deepDir(t, root, maxParentLevels+1)
 	checkResolve(t, "note", docDir, filepath.Join(docDir, "note.md"), false)
+}
+
+// Beyond the parent limit the vault root is still searched — that is the whole
+// point of the marker.
+func TestResolveFromVaultRootBeyondParentLimit(t *testing.T) {
+	root := t.TempDir()
+	mkVault(t, root)
+	want := touch(t, filepath.Join(root, "note.md"))
+	checkResolve(t, "note", deepDir(t, root, maxParentLevels+1), want, true)
+}
+
+// Nearest wins all the way up: a hit in the immediate parent beats one further
+// above it.
+func TestResolveNearestParentWins(t *testing.T) {
+	root := t.TempDir()
+	mkVault(t, root)
+	touch(t, filepath.Join(root, "note.md"))
+	want := touch(t, filepath.Join(root, "a", "note.md"))
+	checkResolve(t, "note", mkDir(t, filepath.Join(root, "a", "b")), want, true)
 }
 
 func TestResolveMissingFileIsBroken(t *testing.T) {
 	root := t.TempDir()
-	mkVault(t, root) // bounds the upward walk at a directory the test controls
 	docDir := mkDir(t, filepath.Join(root, "daily"))
 	checkResolve(t, "missing", docDir, filepath.Join(docDir, "missing.md"), false)
 }
@@ -268,7 +315,6 @@ func TestWikilinkSubfolderLabelShowsPath(t *testing.T) {
 
 func TestWikilinkBrokenGetsBrokenClass(t *testing.T) {
 	dir := t.TempDir()
-	mkVault(t, dir) // bounds the upward walk at a directory the test controls
 	html := renderIn(t, "see [[missing]]", dir)
 	mustContain(t, html, anchor("wikilink broken", filepath.Join(dir, "missing.md"), "missing"))
 }
