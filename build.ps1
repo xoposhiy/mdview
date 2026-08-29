@@ -24,5 +24,9 @@ Write-Host "[mdview] Building..."
 & go build -trimpath -ldflags="-s -w -H windowsgui" -o "$PSScriptRoot\mdview.exe" .
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed"; exit 1 }
 
+Write-Host "[mdview] Copying mathjax.js beside the exe..."
+Copy-Item "$PSScriptRoot\src\internalendererssets\mathjax.js" "$PSScriptRoot\mathjax.js" -Force
+if ($LASTEXITCODE -ne 0) { Write-Error "Copy failed"; exit 1 }
+
 Write-Host ""
 Write-Host "Done! mdview.exe is ready."

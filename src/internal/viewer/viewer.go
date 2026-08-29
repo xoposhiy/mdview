@@ -1,16 +1,19 @@
 package viewer
 
 import (
+	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
 
 	"mdview/internal/applog"
 	"mdview/internal/config"
+	"mdview/internal/imgdecode"
 
 	webview "github.com/jchv/go-webview2"
 )
@@ -23,6 +26,13 @@ var (
 	procLoadImage    = user32.NewProc("LoadImageW")
 	procGetModHandle = kernel32.NewProc("GetModuleHandleW")
 	procShellExecute = shell32.NewProc("ShellExecuteW")
+)
+
+// The window's opening size, in DPI-independent units: what 960x720 meant
+// before mdview declared itself DPI aware.
+const (
+	defaultWindowWidth  = 960
+	defaultWindowHeight = 720
 )
 
 const (
@@ -102,31 +112,75 @@ func TitleFromPath(path string) string {
 	return filepath.Base(path) + " — mdview"
 }
 
-// Viewer manages the WebView2 window.
+// TitleFromPathZoom is TitleFromPath with the current zoom level appended,
+// used while an image is on screen.
+func TitleFromPathZoom(path string, zoomPercent int) string {
+	return filepath.Base(path) + " — mdview (" + strconv.Itoa(zoomPercent) + "%)"
+}
+
+// RenderFunc turns Markdown into a complete HTML page.
+type RenderFunc func(content []byte, prefs config.Config, scrollY int, baseDir string) (string, error)
+
+// Renderers are the two ways a Viewer needs a document turned into HTML.
+// Display may point the page at files on this machine by absolute path,
+// because only this WebView ever opens it. Standalone must inline everything:
+// its output is written next to the Markdown file and is meant to be opened
+// anywhere.
+type Renderers struct {
+	Display    RenderFunc
+	Standalone RenderFunc
+}
+
+// Viewer manages the WebView2 window and, for image files, the native
+// imageControl that replaces it on screen.
 type Viewer struct {
 	w        webview.WebView
 	filePath string
+	title    string
 	prefs    config.Config
 	scrollY  int
 	history  history // documents visited before the current one
 	tmpHTML  string  // temp file used for Navigate instead of SetHtml
-	renderFn func([]byte, config.Config, int, string) (string, error)
+	render   Renderers
+
+	// img is created the first time an image is displayed, not at startup:
+	// a session that only ever shows Markdown pays nothing for the image
+	// view — no window class, no child window, and above all no subclassed
+	// parent WndProc funnelling every window message through Go.
+	img        *imageControl
+	resizeHook bool
+	metrics    *metricsStore
+	evals      *evalRegistry
 }
 
 // navigateHTML writes html to a temp file and navigates to it via file://.
 // This gives WebView2 a file origin so local images load correctly.
 func (v *Viewer) navigateHTML(html string) {
-	if err := os.WriteFile(v.tmpHTML, []byte(html), 0644); err != nil {
+	v.metrics.setSize("htmlBytes", len(html))
+
+	write := v.metrics.track(stageWriteHTML)
+	err := os.WriteFile(v.tmpHTML, []byte(html), 0644)
+	write()
+	if err != nil {
 		applog.Write("navigateHTML: WriteFile failed: %v", err)
 		v.w.SetHtml(html) // fallback
 		return
 	}
+
+	defer v.metrics.track(stageNavigate)()
 	url := "file:///" + strings.ReplaceAll(v.tmpHTML, "\\", "/")
 	v.w.Navigate(url)
 }
 
+// setTitle sets the window title and remembers it, so the control interface
+// can report what the user sees without asking Win32 for it.
+func (v *Viewer) setTitle(title string) {
+	v.title = title
+	v.w.SetTitle(title)
+}
+
 // New creates a Viewer, binds hotkey handlers, and sets the initial HTML.
-// renderFn is called on reload/navigate to convert file content to HTML.
+// render.Display is called on reload/navigate to convert file content to HTML.
 func webviewDataPath() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -135,19 +189,42 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "mdview", "webview")
 }
 
-func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte, config.Config, int, string) (string, error)) *Viewer {
+func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error) {
+	tmp, _ := os.CreateTemp("", "mdview_*.html")
+	tmp.Close()
+	v := &Viewer{
+		filePath: filePath,
+		prefs:    prefs,
+		scrollY:  0,
+		tmpHTML:  tmp.Name(),
+		render:   render,
+		metrics:  newMetricsStore(),
+		evals:    newEvalRegistry(),
+	}
+
+	// Load the file before creating any window. A bad path or a corrupt file
+	// then exits with a message on stderr instead of flashing an empty
+	// window — and the file is still read and rendered exactly once.
+	doc, err := v.load(filePath, 0)
+	if err != nil {
+		os.Remove(v.tmpHTML)
+		return nil, err
+	}
+
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
 	})
-	w.SetTitle(TitleFromPath(filePath))
-	w.SetSize(960, 720, webview.HintNone)
-
-	tmp, _ := os.CreateTemp("", "mdview_*.html")
-	tmp.Close()
-	v := &Viewer{w: w, filePath: filePath, prefs: prefs, scrollY: 0, tmpHTML: tmp.Name(), renderFn: renderFn}
+	v.w = w
+	width, height := scaleForDPI(uintptr(w.Window()), defaultWindowWidth, defaultWindowHeight)
+	w.SetSize(width, height, webview.HintNone)
+	v.setTitle(TitleFromPath(filePath))
 
 	applyWindowIcon(w.Window())
+
+	w.Bind("goEvalResult", func(id, value string) {
+		v.evals.deliver(id, value)
+	})
 
 	w.Bind("goExit", func() {
 		w.Terminate()
@@ -169,7 +246,7 @@ func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte
 		switch kind {
 		case linkInPage:
 			return ""
-		case linkMarkdown:
+		case linkViewable:
 			return v.open(target)
 		default:
 			return openExternal(target)
@@ -184,7 +261,7 @@ func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte
 		if err != nil {
 			return "Error: " + err.Error()
 		}
-		html, err := v.renderFn(content, v.prefs, 0, filepath.Dir(v.filePath))
+		html, err := v.render.Standalone(content, v.prefs, 0, filepath.Dir(v.filePath))
 		if err != nil {
 			return "Error: " + err.Error()
 		}
@@ -218,8 +295,41 @@ func New(filePath, initialHTML string, prefs config.Config, renderFn func([]byte
 		config.Save(v.prefs)
 	})
 
-	v.navigateHTML(initialHTML)
-	return v
+	v.display(doc)
+	return v, nil
+}
+
+// imageView returns the image control, creating it on first use. Must run on
+// the UI thread.
+func (v *Viewer) imageView() *imageControl {
+	if v.img != nil {
+		return v.img
+	}
+	w := v.w
+	c := newImageControl(uintptr(w.Window()), v.prefs.ImageBg)
+	c.onNext = func() string { return v.navigate(+1) }
+	c.onPrev = func() string { return v.navigate(-1) }
+	c.onBack = func() string { return v.back() }
+	c.onReload = func() { v.reload() }
+	c.onExit = func() { w.Terminate() }
+	c.onEditor = func() { openInEditor(v.filePath) }
+	c.onBgChanged = func(bg string) {
+		v.prefs.ImageBg = bg
+		config.Save(v.prefs)
+	}
+	c.onZoom = func(percent int) {
+		v.setTitle(TitleFromPathZoom(v.filePath, percent))
+	}
+	c.metrics = v.metrics
+	v.img = c
+
+	if !v.resizeHook {
+		v.resizeHook = true
+		installParentResizeHook(uintptr(w.Window()), func(width, height int) {
+			v.img.Resize(width, height)
+		})
+	}
+	return c
 }
 
 // Reload re-reads the file and updates the view. Safe to call from any goroutine.
@@ -234,24 +344,76 @@ func (v *Viewer) Run() {
 
 func (v *Viewer) reload() { v.show(v.filePath, v.scrollY) }
 
-// show renders path into the window at the given scroll position. It updates
-// v.filePath and v.scrollY but does not touch history.
+// loadedDoc is a file already turned into something displayable: a rendered
+// HTML page, or a decoded image. Splitting loading from displaying is what
+// lets the first file be loaded before the window exists.
+type loadedDoc struct {
+	path    string
+	scrollY int
+	html    string      // Markdown documents
+	img     image.Image // images
+}
+
+// show loads path and displays it at the given scroll position (images ignore
+// scrollY). It updates v.filePath and v.scrollY but does not touch history.
 func (v *Viewer) show(path string, scrollY int) error {
-	content, err := os.ReadFile(path)
+	doc, err := v.load(path, scrollY)
 	if err != nil {
 		return err
 	}
-	html, err := v.renderFn(content, v.prefs, scrollY, filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	v.filePath = path
-	v.scrollY = scrollY
-	v.w.Dispatch(func() {
-		v.w.SetTitle(TitleFromPath(path))
-		v.navigateHTML(html)
-	})
+	v.display(doc)
 	return nil
+}
+
+// load reads path and prepares it for display. Safe to call from any
+// goroutine, and it touches no window, so it can run before one exists.
+func (v *Viewer) load(path string, scrollY int) (loadedDoc, error) {
+	if imgdecode.IsImage(filepath.Ext(path)) {
+		decode := v.metrics.track(stageDecode)
+		img, err := imgdecode.Decode(path)
+		decode()
+		if err != nil {
+			return loadedDoc{}, err
+		}
+		b := img.Bounds()
+		v.metrics.setSize("imagePixels", b.Dx()*b.Dy())
+		return loadedDoc{path: path, img: img}, nil
+	}
+
+	read := v.metrics.track(stageReadFile)
+	content, err := os.ReadFile(path)
+	read()
+	if err != nil {
+		return loadedDoc{}, err
+	}
+
+	render := v.metrics.track(stageRender)
+	html, err := v.render.Display(content, v.prefs, scrollY, filepath.Dir(path))
+	render()
+	if err != nil {
+		return loadedDoc{}, err
+	}
+	return loadedDoc{path: path, scrollY: scrollY, html: html}, nil
+}
+
+// display puts an already-loaded document on screen. The work itself runs on
+// the UI thread, so display is safe to call from any goroutine.
+func (v *Viewer) display(doc loadedDoc) {
+	v.filePath = doc.path
+	v.scrollY = doc.scrollY
+	v.w.Dispatch(func() {
+		if doc.img != nil {
+			c := v.imageView()
+			c.SetImage(doc.img)
+			c.Show()
+			return
+		}
+		if v.img != nil {
+			v.img.Hide()
+		}
+		v.setTitle(TitleFromPath(doc.path))
+		v.navigateHTML(doc.html)
+	})
 }
 
 // open records the current document in history, then shows path at the top.
@@ -290,7 +452,7 @@ func (v *Viewer) navigate(offset int) string {
 
 	var files []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.ToLower(filepath.Ext(e.Name())) == ".md" {
+		if !e.IsDir() && isViewableExt(filepath.Ext(e.Name())) {
 			files = append(files, e.Name())
 		}
 	}

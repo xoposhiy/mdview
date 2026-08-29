@@ -5,13 +5,17 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"mdview/internal/imgdecode"
 )
 
 type linkKind int
 
 const (
 	linkInPage linkKind = iota
-	linkMarkdown
+	// linkViewable is a link mdview can open itself, in-window: a Markdown
+	// document or a supported image.
+	linkViewable
 	linkExternal
 )
 
@@ -46,9 +50,17 @@ func classifyLink(href, baseDir string) (linkKind, string) {
 	}
 	path = filepath.Clean(path)
 
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".md", ".markdown":
-		return linkMarkdown, path
+	ext := strings.ToLower(filepath.Ext(path))
+	if isViewableExt(ext) {
+		return linkViewable, path
 	}
 	return linkExternal, path
+}
+
+// isViewableExt reports whether mdview can display a file with this
+// extension itself: a Markdown document or a supported image. ext is
+// compared case-insensitively and may or may not already be lower case.
+func isViewableExt(ext string) bool {
+	ext = strings.ToLower(ext)
+	return ext == ".md" || ext == ".markdown" || imgdecode.IsImage(ext)
 }

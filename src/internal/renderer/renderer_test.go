@@ -119,8 +119,9 @@ func TestRenderNonMathDollarUntouched(t *testing.T) {
 	}
 }
 
+// A page carries MathJax only when it has a formula on it; see needsMathJax.
 func TestRenderMathScriptEmbedded(t *testing.T) {
-	html, err := Render([]byte("hello"))
+	html, err := Render([]byte("hello $x^2$"))
 	if err != nil {
 		t.Fatal(err)
 	}

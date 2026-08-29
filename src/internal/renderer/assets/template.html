@@ -377,14 +377,15 @@ mjx-container svg { color: var(--fg); }
     a { text-decoration: underline; }
 }
 </style>
-<script>
+{{if .HasMath}}<script>
 window.MathJax = {
   tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
   svg: { fontCache: 'local' },
   options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
 };
 </script>
-<script>{{.MathJax}}</script>
+{{if .MathJaxSrc}}<script defer src="{{.MathJaxSrc}}"></script>{{else}}<script>{{.MathJax}}</script>{{end}}
+{{end}}
 </head>
 <body data-theme="{{.Theme}}" data-font="{{.Font}}" style="font-size:{{.FontSize}}px">
 <div id="toast"></div>
