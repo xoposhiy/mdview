@@ -16,6 +16,13 @@ body {
   --toast-bg: #333; --toast-fg: #fff;
   --box-bg: #fdf6d8; --box-border: #b0a080;
   --font: 'Segoe UI', system-ui, -apple-system, Arial, sans-serif;
+  /* Accents. Most themes leave these alone: `inherit` keeps headings, bold and
+     italic text in the body colour, which is how every theme looked before
+     these variables existed. A theme overrides only what it wants to colour. */
+  --h1-fg: inherit; --h2-fg: inherit; --h3-fg: inherit; --h4-fg: inherit;
+  --strong-fg: inherit; --em-fg: inherit;
+  --marker-ul: inherit; --marker-ol: inherit;
+  --hr-fill: var(--hr);
 }
 body[data-theme="github"] {
   --bg: #ffffff; --fg: #1f2328;
@@ -38,6 +45,23 @@ body[data-theme="solarized-light"] {
   --h1-border: #93a1a1; --h2-border: #b8c2c2; --hr: #93a1a1;
   --toast-bg: #073642; --toast-fg: #fdf6e3;
   --box-bg: #fdf6e3; --box-border: #93a1a1;
+}
+/* Sun-dappled woodland: parchment background, deep emerald and bark headings,
+   mossy yellow-green rules. Ported from bot.jesyspa.dev "Forest Light". */
+body[data-theme="forest-light"] {
+  --bg: #f6f1e3; --fg: #2d3825;
+  --link: #2d6a3e; --link-hover: #6b4e2e;
+  --code-bg: #ebe5cf; --code-border: #d4c9a8; --code-fg: #6b4e2e;
+  --pre-bg: #ebe5cf; --pre-border: #d4c9a8;
+  --table-border: #d4c9a8; --th-bg: #ede4cf; --row-even: #f1ead8;
+  --bq-bg: #ede4cf; --bq-fg: #5d6948; --bq-border: #6b4e2e;
+  --h1-border: #8a9a3e; --h2-border: #c0ca8a; --hr: #8a9a3e;
+  --toast-bg: #2d3825; --toast-fg: #f6f1e3;
+  --box-bg: #f6f1e3; --box-border: #d4c9a8;
+  --h1-fg: #2d6a3e; --h2-fg: #6b4e2e; --h3-fg: #2d6a3e; --h4-fg: #6b4e2e;
+  --strong-fg: #2d6a3e; --em-fg: #6b4e2e;
+  --marker-ul: #2d6a3e; --marker-ol: #6b4e2e;
+  --hr-fill: linear-gradient(90deg, #2d6a3e, #8a9a3e, #6b4e2e);
 }
 body[data-theme="dark"] {
   --bg: #1c1810; --fg: #e0d5b0;
@@ -82,6 +106,23 @@ body[data-theme="nord"] {
   --h1-border: #4c566a; --h2-border: #434c5e; --hr: #4c566a;
   --toast-bg: #4c566a; --toast-fg: #eceff4;
   --box-bg: #2e3440; --box-border: #4c566a;
+}
+/* Moonlit woodland: night-green base, leaf-green and amber accents, cream
+   body text. Ported from bot.jesyspa.dev "Forest Dark". */
+body[data-theme="forest-dark"] {
+  --bg: #0d1612; --fg: #e0d8b8;
+  --link: #a8d896; --link-hover: #f4c542;
+  --code-bg: #11201a; --code-border: #1f3027; --code-fg: #a8d896;
+  --pre-bg: #11201a; --pre-border: #1f3027;
+  --table-border: #1f3027; --th-bg: #16221b; --row-even: #121c17;
+  --bq-bg: #16221b; --bq-fg: #8a9580; --bq-border: #7eb877;
+  --h1-border: #2d6a3e; --h2-border: #f4c542; --hr: #7eb877;
+  --toast-bg: #16221b; --toast-fg: #e0d8b8;
+  --box-bg: #0d1612; --box-border: #1f3027;
+  --h1-fg: #7eb877; --h2-fg: #a8d896; --h3-fg: #f4c542; --h4-fg: #a8d896;
+  --strong-fg: #f4c542; --em-fg: #a8d896;
+  --marker-ul: #7eb877; --marker-ol: #f4c542;
+  --hr-fill: linear-gradient(90deg, #2d6a3e, #7eb877, #f4c542, #c19a5b);
 }
 
 /* ----- Fonts ----- */
@@ -165,10 +206,12 @@ pre.frontmatter-raw { margin: 0 0 2em; opacity: 0.8; }
 
 /* Headings */
 h1, h2, h3, h4, h5, h6 { font-weight: 700; line-height: 1.25; margin: 1.4em 0 0.4em; }
-h1 { font-size: 2em;    border-bottom: 2px solid var(--h1-border); padding-bottom: 0.2em; }
-h2 { font-size: 1.5em;  border-bottom: 1px solid var(--h2-border); padding-bottom: 0.15em; }
-h3 { font-size: 1.25em; }
-h4 { font-size: 1.05em; }
+h1 { font-size: 2em;    border-bottom: 2px solid var(--h1-border); padding-bottom: 0.2em; color: var(--h1-fg); }
+h2 { font-size: 1.5em;  border-bottom: 1px solid var(--h2-border); padding-bottom: 0.15em; color: var(--h2-fg); }
+h3 { font-size: 1.25em; color: var(--h3-fg); }
+h4 { font-size: 1.05em; color: var(--h4-fg); }
+strong { color: var(--strong-fg); }
+em { color: var(--em-fg); }
 
 /* Code (always monospace, independent of body font) */
 code { font-family: Consolas, 'Cascadia Mono', "Courier New", monospace; font-size: 0.88em; background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--code-border); border-radius: 3px; padding: 1px 5px; }
@@ -191,9 +234,13 @@ a.wikilink.broken { color: var(--fg); opacity: .55; text-decoration-style: dotte
 ul, ol { padding-left: 1.8em; margin: 0.6em 0; }
 li { margin: 0.25em 0; }
 li input[type="checkbox"] { margin-right: 6px; }
+ul li::marker { color: var(--marker-ul); }
+ol li::marker { color: var(--marker-ol); }
 
 /* Misc */
-hr { border: none; border-top: 2px solid var(--hr); margin: 2em 0; }
+/* A 2px background bar, not a border, so a theme can put a gradient in
+   --hr-fill; the default --hr-fill is the plain --hr colour. */
+hr { border: none; height: 2px; background: var(--hr-fill); margin: 2em 0; }
 p { margin: 0.7em 0; }
 img { max-width: 100%; height: auto; border-radius: 4px; }
 del { opacity: 0.55; }
@@ -272,6 +319,63 @@ mjx-container svg { color: var(--fg); }
     font-family: 'Segoe UI', system-ui, sans-serif;
 }
 #toast.show { opacity: 0.92; }
+
+/* ----- Print / "Save as PDF" -----
+   The screen layout is wrong on paper: the body carries an inline
+   font-size (18px default = 13.5pt, far too big for print), a max-width
+   plus padding that fight the page box, and fixed-position chrome that
+   would land on page 1. Everything here is deliberately in pt so the
+   output does not depend on the on-screen size slider; !important is
+   required because the body's font-size is an inline style. */
+@media print {
+    @page { margin: 15mm; }
+
+    body {
+        font-size: 10.5pt !important;
+        line-height: 1.45;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        /* Print flat on white whatever the screen theme is, and keep the
+           borders/backgrounds of code, tables and quotes readable. */
+        --bg: #ffffff; --fg: #000000;
+        --link: #000000; --link-hover: #000000;
+        --code-bg: #f4f4f4; --code-border: #cccccc; --code-fg: #000000;
+        --pre-bg: #f7f7f7; --pre-border: #cccccc;
+        --table-border: #999999; --th-bg: #eeeeee; --row-even: #f7f7f7;
+        --bq-bg: #f7f7f7; --bq-fg: #333333; --bq-border: #999999;
+        --h1-border: #999999; --h2-border: #bbbbbb; --hr: #999999;
+        --h1-fg: inherit; --h2-fg: inherit; --h3-fg: inherit; --h4-fg: inherit;
+        --strong-fg: inherit; --em-fg: inherit;
+        --marker-ul: inherit; --marker-ol: inherit;
+        --hr-fill: #999999;
+    }
+
+    /* UI chrome never belongs in the document. */
+    #settings-btn, #back-btn, #toast, .overlay { display: none !important; }
+
+    h1 { font-size: 1.6em; }
+    h2 { font-size: 1.3em; }
+    h3 { font-size: 1.12em; }
+    h4 { font-size: 1em; }
+    h1, h2, h3, h4, h5, h6 { break-after: avoid; page-break-after: avoid; }
+
+    /* No horizontal scrollbars on paper — wrap instead of clipping. */
+    pre { white-space: pre-wrap; word-wrap: break-word; overflow: visible; }
+    pre, blockquote, table, img, .math-display { break-inside: avoid; page-break-inside: avoid; }
+    tr, li { break-inside: avoid; page-break-inside: avoid; }
+
+    /* initWideTables() sets a viewport-sized width and a negative margin
+       inline; both push the table off the printed page. */
+    .table-wide-wrapper {
+        width: auto !important;
+        margin-left: 0 !important;
+        overflow: visible !important;
+    }
+    .table-wide-wrapper > table { width: 100%; }
+
+    a { text-decoration: underline; }
+}
 </style>
 <script>
 window.MathJax = {
@@ -345,10 +449,12 @@ var THEMES = [
   { id: 'light',           name: 'Cream',           color: '#c8b860' },
   { id: 'github',          name: 'GitHub',          color: '#0969da' },
   { id: 'solarized-light', name: 'Solarized Light', color: '#b58900' },
+  { id: 'forest-light',    name: 'Forest Light',    color: '#2d6a3e' },
   { id: 'dark',            name: 'Dark',            color: '#d4a820' },
   { id: 'solarized-dark',  name: 'Solarized Dark',  color: '#268bd2' },
   { id: 'dracula',         name: 'Dracula',         color: '#bd93f9' },
-  { id: 'nord',            name: 'Nord',            color: '#88c0d0' }
+  { id: 'nord',            name: 'Nord',            color: '#88c0d0' },
+  { id: 'forest-dark',     name: 'Forest Dark',     color: '#7eb877' }
 ];
 var FONTS = [
   { id: 'sans',    name: 'Sans' },
