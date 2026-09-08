@@ -62,12 +62,38 @@ changes, and most existing hotkeys.
 - The current zoom level is shown in the window title, e.g.
   `chart.png — mdview (137%)`.
 
+### How a frame is drawn
+
+- The frame is built in an off-screen bitmap and copied to the window in one
+  BitBlt. Drawing straight to the window showed the background for as long as
+  the scaling took, which is the black flash while zooming.
+- Only the part of the image the window can show is handed to GDI. At 800% the
+  full destination rectangle is tens of thousands of pixels wide, and scaling
+  all of it just to clip it away took ~10 ms per frame; clipping first takes
+  ~2.5 ms.
+- Downscaling uses HALFTONE, which averages the pixels it drops. It reads
+  every source pixel and costs ~50 ms on a 12-megapixel image, so while the
+  user is zooming or panning the cheap mode is used instead, and a HALFTONE
+  repaint follows 90 ms after the gesture stops. Upscaling always uses the
+  cheap mode: at over 100% it shows the real pixels instead of blurring them.
+
 ## Background / transparency
 
 - A simple black/white letterbox background (default: black), toggled with
   `D` — not the 9 Markdown CSS themes, which don't apply to images.
 - PNG alpha transparency is composited onto this background; no
   checkerboard pattern.
+
+## Saving and showing the file
+
+- `S` and `Ctrl+S` open the standard Save-as dialog, starting in the image's
+  own folder with its own name. Saving copies the file byte for byte: the
+  same format and quality, no re-encoding, and zoom/pan/background do not
+  change what is written.
+- `O` opens Explorer on the image's folder with the image selected.
+- The Markdown view has the same two keys: `Ctrl+S` (save as HTML) now asks
+  where the file goes instead of writing next to the source, and `O` shows
+  the Markdown file in Explorer. `S` stays the appearance panel there.
 
 ## Clipboard
 
@@ -85,7 +111,15 @@ changes, and most existing hotkeys.
 | E | Open in editor (same as Markdown) |
 | D | Toggle black/white letterbox background |
 | Ctrl+C | Copy image to clipboard |
-| S, W, Ctrl+S | No-op (Markdown-only: theme/font settings, wide layout, save as HTML) |
+| S, Ctrl+S | Save a copy of the image (a Save-as dialog asks where) |
+| O | Show the image in Explorer, selected in its folder |
+| W | No-op (Markdown-only: wide layout) |
+
+The image control takes the keyboard focus when it is shown, when it is
+clicked, and every time the window is activated again. Without the last one,
+WebView2 takes the focus back into its own child window on every alt-tab,
+click-from-another-app, or closing dialog, and the shortcuts above would go to
+the hidden page instead of the image.
 
 Native keyboard/mouse handling for the image control calls the same Go
 methods (`navigate`, `back`, `reload`, ...) that Markdown's JS hotkeys call

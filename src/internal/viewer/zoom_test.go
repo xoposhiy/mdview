@@ -118,3 +118,56 @@ func TestPanCentersWhenImageSmallerThanViewport(t *testing.T) {
 		t.Errorf("pan = (%v, %v), want centered at (%v, %v)", z.panX, z.panY, want, want)
 	}
 }
+
+func TestVisibleRectCoversWholeImageWhenFitted(t *testing.T) {
+	z := newZoomState(2000, 1000)
+	z.Layout(800, 800) // fit: the whole image is on screen, letterboxed
+	x0, y0, x1, y1 := z.visibleRect(800, 800)
+	if x0 != 0 || y0 != 0 || x1 != 2000 || y1 != 1000 {
+		t.Errorf("visibleRect while fitted = (%d,%d)-(%d,%d), want the whole image", x0, y0, x1, y1)
+	}
+}
+
+func TestVisibleRectClipsToTheViewport(t *testing.T) {
+	z := newZoomState(2000, 1000)
+	z.fit = false
+	z.scale = 4
+	z.panX, z.panY = 100, 50
+	// 800/4 = 200 image pixels across, 400/4 = 100 down.
+	x0, y0, x1, y1 := z.visibleRect(800, 400)
+	if x0 != 100 || y0 != 50 || x1 != 300 || y1 != 150 {
+		t.Errorf("visibleRect at 400%% = (%d,%d)-(%d,%d), want (100,50)-(300,150)", x0, y0, x1, y1)
+	}
+}
+
+func TestVisibleRectRoundsOutwards(t *testing.T) {
+	z := newZoomState(2000, 1000)
+	z.fit = false
+	z.scale = 4
+	z.panX, z.panY = 100.5, 50.5
+	x0, y0, x1, y1 := z.visibleRect(800, 400)
+	// A partly visible source pixel must still be drawn, or the viewport
+	// edge would show background.
+	if x0 != 100 || y0 != 50 || x1 != 301 || y1 != 151 {
+		t.Errorf("visibleRect at a fractional pan = (%d,%d)-(%d,%d), want (100,50)-(301,151)", x0, y0, x1, y1)
+	}
+}
+
+func TestClippedDrawKeepsThePictureInPlace(t *testing.T) {
+	z := newZoomState(2000, 1000)
+	z.fit = false
+	z.scale = 3
+	z.panX, z.panY = 40.25, 10.75
+
+	// Where the clipped rectangle is drawn must match where the whole image
+	// would put those same image pixels.
+	x0, y0, _, _ := z.visibleRect(600, 300)
+	wholeX := int(-z.panX*z.scale) + int(float64(x0)*z.scale)
+	if got := z.viewportX(x0); got-wholeX > 1 || wholeX-got > 1 {
+		t.Errorf("viewportX(%d) = %d, want within 1 of %d", x0, got, wholeX)
+	}
+	wholeY := int(-z.panY*z.scale) + int(float64(y0)*z.scale)
+	if got := z.viewportY(y0); got-wholeY > 1 || wholeY-got > 1 {
+		t.Errorf("viewportY(%d) = %d, want within 1 of %d", y0, got, wholeY)
+	}
+}

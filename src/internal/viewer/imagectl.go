@@ -43,13 +43,18 @@ var (
 	procSetClipboardData  = user32.NewProc("SetClipboardData")
 	procCloseClipboard    = user32.NewProc("CloseClipboard")
 
-	procSetStretchBltMode = gdi32.NewProc("SetStretchBltMode")
-	procSetBrushOrgEx     = gdi32.NewProc("SetBrushOrgEx")
-	procStretchDIBits     = gdi32.NewProc("StretchDIBits")
-	procCreateSolidBrush  = gdi32.NewProc("CreateSolidBrush")
-	procDeleteObject      = gdi32.NewProc("DeleteObject")
-	procSetTextColor      = gdi32.NewProc("SetTextColor")
-	procSetBkMode         = gdi32.NewProc("SetBkMode")
+	procSetStretchBltMode      = gdi32.NewProc("SetStretchBltMode")
+	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
+	procCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	procSelectObject           = gdi32.NewProc("SelectObject")
+	procBitBlt                 = gdi32.NewProc("BitBlt")
+	procDeleteDC               = gdi32.NewProc("DeleteDC")
+	procSetBrushOrgEx          = gdi32.NewProc("SetBrushOrgEx")
+	procStretchDIBits          = gdi32.NewProc("StretchDIBits")
+	procCreateSolidBrush       = gdi32.NewProc("CreateSolidBrush")
+	procDeleteObject           = gdi32.NewProc("DeleteObject")
+	procSetTextColor           = gdi32.NewProc("SetTextColor")
+	procSetBkMode              = gdi32.NewProc("SetBkMode")
 
 	procGlobalAlloc  = kernel32.NewProc("GlobalAlloc")
 	procGlobalLock   = kernel32.NewProc("GlobalLock")
@@ -96,6 +101,8 @@ func scaleForDPI(hwnd uintptr, width, height int) (int, int) {
 
 const (
 	wmDestroy        = 0x0002
+	wmActivate       = 0x0006
+	wmSetFocus       = 0x0007
 	wmSize           = 0x0005
 	wmPaint          = 0x000F
 	wmEraseBkgnd     = 0x0014
@@ -109,6 +116,8 @@ const (
 	wmKeyDown        = 0x0100
 	wmTimer          = 0x0113
 	wmGetDlgCode     = 0x0087
+
+	waInactive = 0
 
 	dlgcWantArrows  = 0x0001
 	dlgcWantTab     = 0x0002
@@ -140,6 +149,7 @@ const (
 	swRestore = 9
 
 	halftone      = 4
+	colorOnColor  = 3
 	cfDIB         = 8
 	gmemMoveable  = 0x0002
 	dtCenter      = 0x0001
@@ -150,6 +160,10 @@ const (
 	idcArrow      = 32512
 	toastTimerID  = 1
 	toastMillis   = 2500
+	// While the user zooms or pans, the image is scaled the fast way and a
+	// quality repaint follows once the gesture stops for this long.
+	qualityTimerID = 2
+	qualityMillis  = 90
 )
 
 type winRect struct {
@@ -282,6 +296,16 @@ type imageControl struct {
 	dragX, dragY int32
 	toast        string
 
+	// Off-screen buffer the client area is drawn into, kept between paints
+	// and rebuilt only when the client size changes.
+	bufDC, bufBmp, bufOldBmp uintptr
+	bufW, bufH               int
+
+	// fastScale is on while the user is zooming or panning: the image is
+	// then scaled the cheap way, and a quality repaint follows once the
+	// gesture stops.
+	fastScale bool
+
 	savedFocus uintptr
 
 	// metrics is the owning Viewer's store; the image view records its
@@ -292,6 +316,7 @@ type imageControl struct {
 	onNext, onPrev, onBack func() string
 	onReload, onExit       func()
 	onEditor               func()
+	onSave, onReveal       func() string
 	onBgChanged            func(bg string)
 	onZoom                 func(percent int)
 }
@@ -358,6 +383,23 @@ func (c *imageControl) Show() {
 	c.savedFocus, _, _ = procGetFocus.Call()
 	procShowWindow.Call(c.hwnd, swShow)
 	procBringWindowToTop.Call(c.hwnd)
+	procSetFocus2.Call(c.hwnd)
+}
+
+// takeFocus gives the control the keyboard focus, unless it already has it.
+//
+// Every time the window is activated again — alt-tab, a click after another
+// app was in front, a modal dialog closing — WebView2 pulls the focus into
+// its own child window, even while the image covers it. Key presses would
+// then go to a page nobody can see, and the image view's shortcuts would
+// stop working, so the control takes the focus back.
+func (c *imageControl) takeFocus() {
+	if c.hwnd == 0 {
+		return
+	}
+	if cur, _, _ := procGetFocus.Call(); cur == c.hwnd {
+		return
+	}
 	procSetFocus2.Call(c.hwnd)
 }
 
@@ -477,6 +519,70 @@ func (c *imageControl) reportZoom() {
 
 func (c *imageControl) invalidate() {
 	procInvalidateRect.Call(c.hwnd, 0, 0)
+}
+
+// backBuffer returns a memory DC the size of the client area with an
+// off-screen bitmap selected into it, creating one on first use and after a
+// resize. Painting goes there and reaches the window as a single BitBlt, so
+// a repaint never shows the background before the image (the black flash
+// while zooming). It returns 0 if GDI refuses, and the caller then paints
+// straight to the window.
+func (c *imageControl) backBuffer(hdc uintptr, w, h int) uintptr {
+	if c.bufDC != 0 && c.bufW == w && c.bufH == h {
+		return c.bufDC
+	}
+	c.releaseBackBuffer()
+	if w <= 0 || h <= 0 {
+		return 0
+	}
+	dc, _, _ := procCreateCompatibleDC.Call(hdc)
+	if dc == 0 {
+		return 0
+	}
+	// Compatible with the window DC, not with dc: a memory DC starts out
+	// holding a 1x1 monochrome bitmap, and a bitmap made from it would be
+	// monochrome too.
+	bmp, _, _ := procCreateCompatibleBitmap.Call(hdc, uintptr(w), uintptr(h))
+	if bmp == 0 {
+		procDeleteDC.Call(dc)
+		return 0
+	}
+	old, _, _ := procSelectObject.Call(dc, bmp)
+	c.bufDC, c.bufBmp, c.bufOldBmp = dc, bmp, old
+	c.bufW, c.bufH = w, h
+	return dc
+}
+
+func (c *imageControl) releaseBackBuffer() {
+	if c.bufDC == 0 {
+		return
+	}
+	if c.bufOldBmp != 0 {
+		procSelectObject.Call(c.bufDC, c.bufOldBmp)
+	}
+	if c.bufBmp != 0 {
+		procDeleteObject.Call(c.bufBmp)
+	}
+	procDeleteDC.Call(c.bufDC)
+	c.bufDC, c.bufBmp, c.bufOldBmp = 0, 0, 0
+	c.bufW, c.bufH = 0, 0
+}
+
+// beginFastScale marks the start (or continuation) of a zoom/pan gesture and
+// arms the timer that repaints at full quality once it stops.
+func (c *imageControl) beginFastScale() {
+	c.fastScale = true
+	procSetTimer.Call(c.hwnd, qualityTimerID, qualityMillis, 0)
+}
+
+// endFastScale leaves fast scaling and repaints at full quality.
+func (c *imageControl) endFastScale() {
+	procKillTimer.Call(c.hwnd, qualityTimerID)
+	if !c.fastScale {
+		return
+	}
+	c.fastScale = false
+	c.invalidate()
 }
 
 // showToast displays a short-lived message over the image, mirroring the

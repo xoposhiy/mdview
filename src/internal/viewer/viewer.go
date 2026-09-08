@@ -256,22 +256,9 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 	w.Bind("goBack", func() string { return v.back() })
 	w.Bind("goCanGoBack", func() bool { return v.history.canGoBack() })
 
-	w.Bind("goSaveHTML", func() string {
-		content, err := os.ReadFile(v.filePath)
-		if err != nil {
-			return "Error: " + err.Error()
-		}
-		html, err := v.render.Standalone(content, v.prefs, 0, filepath.Dir(v.filePath))
-		if err != nil {
-			return "Error: " + err.Error()
-		}
-		ext := filepath.Ext(v.filePath)
-		outPath := v.filePath[:len(v.filePath)-len(ext)] + ".html"
-		if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
-			return "Error: " + err.Error()
-		}
-		return "Saved: " + filepath.Base(outPath)
-	})
+	w.Bind("goSaveHTML", func() string { return v.saveHTMLAs() })
+
+	w.Bind("goReveal", func() string { return revealInExplorer(v.filePath) })
 
 	w.Bind("goOpenEditor", func() {
 		applog.Write("goOpenEditor called, filePath=%s", v.filePath)
@@ -313,6 +300,8 @@ func (v *Viewer) imageView() *imageControl {
 	c.onReload = func() { v.reload() }
 	c.onExit = func() { w.Terminate() }
 	c.onEditor = func() { openInEditor(v.filePath) }
+	c.onSave = func() string { return v.saveImageAs() }
+	c.onReveal = func() string { return revealInExplorer(v.filePath) }
 	c.onBgChanged = func(bg string) {
 		v.prefs.ImageBg = bg
 		config.Save(v.prefs)
@@ -325,11 +314,73 @@ func (v *Viewer) imageView() *imageControl {
 
 	if !v.resizeHook {
 		v.resizeHook = true
-		installParentResizeHook(uintptr(w.Window()), func(width, height int) {
-			v.img.Resize(width, height)
-		})
+		installParentHook(uintptr(w.Window()),
+			func(width, height int) { v.img.Resize(width, height) },
+			func() {
+				if v.img.visible {
+					v.img.takeFocus()
+				}
+			})
 	}
 	return c
+}
+
+// saveHTMLAs asks the user where to put a standalone copy of the current
+// document and writes it there. It returns a message for the user, or "" if
+// the user cancelled.
+//
+// The dialog is modal, so this must run on the UI thread — which it does: it
+// is called from a JS binding and from the image control's key handler.
+func (v *Viewer) saveHTMLAs() string {
+	ext := filepath.Ext(v.filePath)
+	suggested := v.filePath[:len(v.filePath)-len(ext)] + ".html"
+	outPath := saveFileDialog(uintptr(v.w.Window()), "Save as HTML", suggested,
+		"HTML files (*.html)|*.html|All files (*.*)|*.*", "html")
+	if outPath == "" {
+		return ""
+	}
+
+	content, err := os.ReadFile(v.filePath)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	html, err := v.render.Standalone(content, v.prefs, 0, filepath.Dir(v.filePath))
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
+		return "Error: " + err.Error()
+	}
+	return "Saved: " + filepath.Base(outPath)
+}
+
+// saveImageAs asks the user where to put a copy of the image on screen and
+// copies the file there, bytes as they are on disk: the same format, the same
+// quality, no re-encoding.
+func (v *Viewer) saveImageAs() string {
+	src := v.filePath
+	ext := strings.ToLower(filepath.Ext(src))
+	filter := "All files (*.*)|*.*"
+	if ext != "" {
+		filter = "Image (*" + ext + ")|*" + ext + "|" + filter
+	}
+	outPath := saveFileDialog(uintptr(v.w.Window()), "Save image as", src,
+		filter, strings.TrimPrefix(ext, "."))
+	if outPath == "" {
+		return ""
+	}
+	if strings.EqualFold(filepath.Clean(outPath), filepath.Clean(src)) {
+		return "Same file: " + filepath.Base(src)
+	}
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	if err := os.WriteFile(outPath, data, 0644); err != nil {
+		return "Error: " + err.Error()
+	}
+	return "Saved: " + filepath.Base(outPath)
 }
 
 // Reload re-reads the file and updates the view. Safe to call from any goroutine.

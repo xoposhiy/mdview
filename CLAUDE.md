@@ -98,6 +98,17 @@ instead of sleeping and hoping.
   because their output has to open on another machine; `viewer.Renderers` is
   what splits those two cases apart. A missing `mathjax.js` falls back to
   inlining, so a stray copy of the exe still shows formulas.
+- The image view draws every frame into an off-screen bitmap and blits it in
+  one go, hands GDI only the visible part of the image, and scales the cheap
+  way while a zoom/pan gesture is running (a HALFTONE repaint follows 90 ms
+  after it stops). Together those are what removed the black flash and the
+  ~10-50 ms per frame while zooming — see `onPaint`/`drawImage`.
+- While an image is on screen the image control has to keep taking the
+  keyboard focus back. Every activation of the window — alt-tab, a click after
+  another app was in front, a modal dialog closing — makes WebView2 pull the
+  focus into its own child window, even though the image covers it, and the
+  image view's keys would then go to a page nobody can see. `installParentHook`
+  watches the parent's WM_ACTIVATE/WM_SETFOCUS and calls `takeFocus`.
 - The native image control (`imageControl`) is created the first time an image
   is displayed, not at startup, so a Markdown-only session pays nothing for
   it — in particular it does not get the subclassed parent `WndProc`.

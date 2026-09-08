@@ -40,7 +40,8 @@ mdview file.md
 - Arrow keys walk the other `.md` files in the same directory
 - Open the source in your editor (`%EDITOR%` / `%VISUAL%`, else the shell's
   edit verb, else Notepad)
-- Save the rendered page as a standalone HTML file
+- Save the rendered page as a standalone HTML file (a Save-as dialog asks
+  where it goes)
 - `--export=out.html file.md` renders headlessly and exits, no window
 
 ## Keyboard shortcuts
@@ -52,7 +53,8 @@ mdview file.md
 | `D` | Toggle light / dark theme |
 | `W` | Toggle wide / narrow layout |
 | `E` | Open in editor |
-| `Ctrl+S` | Save as HTML |
+| `O` | Show the file in Explorer |
+| `Ctrl+S` | Save as HTML (asks where) |
 | `F5`, `Ctrl+R` | Reload file |
 | `?`, `H` | Show / hide shortcuts |
 | `Esc` | Close panel, or quit |

@@ -402,7 +402,8 @@ window.MathJax = {
       <tr><td>W</td><td>Toggle wide / narrow layout</td></tr>
       <tr><td>D</td><td>Toggle light / dark theme</td></tr>
       <tr><td>E</td><td>Open in editor</td></tr>
-      <tr><td>Ctrl+S</td><td>Save as HTML</td></tr>
+      <tr><td>O</td><td>Show the file in Explorer</td></tr>
+      <tr><td>Ctrl+S</td><td>Save as HTML&nbsp;…</td></tr>
       <tr><td>F5, Ctrl+R</td><td>Reload file</td></tr>
       <tr><td>Esc</td><td>Close panel / quit</td></tr>
       <tr><td>?, H</td><td>Show / hide this menu</td></tr>
@@ -444,6 +445,7 @@ if (typeof goNext === 'undefined')         { goNext         = function() { retur
 if (typeof goOpenLink === 'undefined')     { goOpenLink     = function() { return Promise.resolve(''); }; }
 if (typeof goBack === 'undefined')         { goBack         = function() { return Promise.resolve(''); }; }
 if (typeof goSaveHTML === 'undefined')     { goSaveHTML     = function() { return Promise.resolve(''); }; }
+if (typeof goReveal === 'undefined')       { goReveal       = function() { return Promise.resolve(''); }; }
 if (typeof goCanGoBack === 'undefined')    { goCanGoBack    = function() { return Promise.resolve(false); }; }
 
 var THEMES = [
@@ -622,7 +624,7 @@ document.addEventListener('keydown', function(e) {
     }
     if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
-        goSaveHTML().then(function(msg) { showToast(msg); });
+        goSaveHTML().then(toastIfMsg);
         return;
     }
     // Must be handled before the modifier guard below, which would swallow it.
@@ -646,6 +648,7 @@ document.addEventListener('keydown', function(e) {
         return;
     }
     if (e.key === 'e' || e.key === 'E') { goOpenEditor(); return; }
+    if (e.key === 'o' || e.key === 'O') { goReveal().then(toastIfMsg); return; }
     // Below the INPUT guard above, so the size slider keeps its own Backspace.
     if (e.key === 'Backspace') { e.preventDefault(); goBackAndToast(); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); goPrev().then(toastIfMsg); return; }

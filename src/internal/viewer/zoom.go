@@ -119,3 +119,39 @@ func (z *zoomState) PanBy(dxViewport, dyViewport float64, viewportW, viewportH i
 func (z *zoomState) Percent() int {
 	return int(math.Round(z.scale * 100))
 }
+
+// visibleRect returns the part of the image the viewport can show, in image
+// pixels, rounded outwards so the viewport edges stay covered. Drawing only
+// this part is what keeps a repaint cheap at a high zoom, where the whole
+// scaled image is many times the size of the window.
+//
+// The returned rectangle is empty (x1 <= x0 or y1 <= y0) when the viewport
+// shows no image at all.
+func (z *zoomState) visibleRect(viewportW, viewportH int) (x0, y0, x1, y1 int) {
+	x0 = clampInt(int(math.Floor(z.panX)), 0, z.imgW)
+	y0 = clampInt(int(math.Floor(z.panY)), 0, z.imgH)
+	x1 = clampInt(int(math.Ceil(z.panX+float64(viewportW)/z.scale)), 0, z.imgW)
+	y1 = clampInt(int(math.Ceil(z.panY+float64(viewportH)/z.scale)), 0, z.imgH)
+	return x0, y0, x1, y1
+}
+
+// viewportX and viewportY map an image coordinate to the viewport pixel it is
+// drawn at. Both edges of a drawn rectangle go through them, so clipping the
+// image to visibleRect cannot move what is left on screen.
+func (z *zoomState) viewportX(imgX int) int {
+	return int(math.Round((float64(imgX) - z.panX) * z.scale))
+}
+
+func (z *zoomState) viewportY(imgY int) int {
+	return int(math.Round((float64(imgY) - z.panY) * z.scale))
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
