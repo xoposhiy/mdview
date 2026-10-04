@@ -190,6 +190,13 @@ func webviewDataPath() string {
 }
 
 func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error) {
+	// Everything derived from the path (image src URLs, data-path, link
+	// targets, the file list for arrow keys) assumes an absolute path. A
+	// relative path from the terminal would otherwise be joined with the
+	// document's directory a second time when a link or image is clicked.
+	if abs, err := filepath.Abs(filePath); err == nil {
+		filePath = abs
+	}
 	tmp, _ := os.CreateTemp("", "mdview_*.html")
 	tmp.Close()
 	v := &Viewer{

@@ -243,6 +243,8 @@ ol li::marker { color: var(--marker-ol); }
 hr { border: none; height: 2px; background: var(--hr-fill); margin: 2em 0; }
 p { margin: 0.7em 0; }
 img { max-width: 100%; height: auto; border-radius: 4px; }
+/* A local image opens in the image view on click (see the click handler). */
+img[data-path] { cursor: zoom-in; }
 del { opacity: 0.55; }
 
 /* Math */
@@ -542,12 +544,23 @@ function goBackAndToast() { goBack().then(toastIfMsg); }
    document's own directory. Go resolves it and decides where it opens.
    Delegated on document (not .content) so frontmatter-table links work too. */
 document.addEventListener('click', function(e) {
-  var a = e.target.closest && e.target.closest('a[href]');
-  if (!a) return;
-  var href = a.getAttribute('href');
-  if (!href || href.charAt(0) === '#') return; // in-page anchor: let it scroll
-  e.preventDefault();
-  goOpenLink(href).then(toastIfMsg);
+  if (!e.target.closest) return;
+  var a = e.target.closest('a[href]');
+  if (a) {
+    var href = a.getAttribute('href');
+    if (!href || href.charAt(0) === '#') return; // in-page anchor: let it scroll
+    e.preventDefault();
+    goOpenLink(href).then(toastIfMsg);
+    return;
+  }
+  /* A local image outside a link opens in the image view. data-path is the
+     absolute path the renderer put on the tag (see resolveImageSrcs); the
+     file:/// src would be classified as an external URL. Back returns here. */
+  var img = e.target.closest('img[data-path]');
+  if (img) {
+    e.preventDefault();
+    goOpenLink(img.getAttribute('data-path')).then(toastIfMsg);
+  }
 });
 
 document.getElementById('back-btn').addEventListener('click', goBackAndToast);

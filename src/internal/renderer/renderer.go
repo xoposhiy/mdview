@@ -3,6 +3,7 @@ package renderer
 import (
 	"bytes"
 	_ "embed"
+	"html"
 	"html/template"
 	"net/url"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"mdview/internal/config"
+	"mdview/internal/imgdecode"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -75,11 +77,17 @@ var imgSrcRe = regexp.MustCompile(`src="([^"]*)"`)
 
 // resolveImageSrcs rewrites relative src= attributes to file:/// URLs so that
 // WebView2's SetHtml (which has no base URL) can load local images.
-func resolveImageSrcs(html, baseDir string) string {
+//
+// A local image mdview can display itself also gets a data-path attribute
+// with its absolute path. The page sends that path to goOpenLink when the
+// image is clicked, so the image opens in the image view. The src URL is not
+// enough for that: the page's link handler treats every URL with a scheme as
+// external. Remote and data: images get no data-path and stay unclickable.
+func resolveImageSrcs(page, baseDir string) string {
 	if baseDir == "" {
-		return html
+		return page
 	}
-	return imgSrcRe.ReplaceAllStringFunc(html, func(m string) string {
+	return imgSrcRe.ReplaceAllStringFunc(page, func(m string) string {
 		src := m[5 : len(m)-1] // strip src=" and trailing "
 		switch {
 		case strings.HasPrefix(src, "http://"),
@@ -90,10 +98,16 @@ func resolveImageSrcs(html, baseDir string) string {
 		}
 		abs := src
 		if !filepath.IsAbs(src) {
-			abs = filepath.Join(baseDir, src)
+			// src is already attribute-escaped by the Markdown renderer;
+			// baseDir comes straight from the file system and is not.
+			abs = filepath.Join(html.EscapeString(baseDir), src)
 		}
 		url := "file:///" + strings.ReplaceAll(abs, "\\", "/")
-		return `src="` + url + `"`
+		attrs := `src="` + url + `"`
+		if imgdecode.IsImage(filepath.Ext(abs)) {
+			attrs += ` data-path="` + abs + `"`
+		}
+		return attrs
 	})
 }
 

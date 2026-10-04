@@ -198,3 +198,26 @@ func TestRenderOutputIsFullPage(t *testing.T) {
 		t.Errorf("expected closing </html>, got:\n%s", html)
 	}
 }
+
+func TestResolveImageSrcsAddsDataPathForLocalImages(t *testing.T) {
+	in := `<img src="pics/a%20b.png" alt="x">`
+	got := resolveImageSrcs(in, `C:\docs`)
+	want := `<img src="file:///C:/docs/pics/a%20b.png" data-path="C:\docs\pics\a%20b.png" alt="x">`
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestResolveImageSrcsNoDataPathForRemoteOrUnsupported(t *testing.T) {
+	cases := []string{
+		`<img src="https://example.com/a.png">`,
+		`<img src="data:image/png;base64,AAAA">`,
+		`<img src="file:///C:/x/a.png">`,
+		`<img src="diagram.svg">`,
+	}
+	for _, in := range cases {
+		if got := resolveImageSrcs(in, `C:\docs`); strings.Contains(got, "data-path") {
+			t.Errorf("%s: unexpected data-path in %s", in, got)
+		}
+	}
+}

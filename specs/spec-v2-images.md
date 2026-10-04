@@ -47,6 +47,13 @@ changes, and most existing hotkeys.
 - A Markdown link to a supported image (e.g. `[fig](chart.png)`) now opens
   in mdview itself, pushing history, instead of shelling out to the OS's
   default image viewer.
+- A local image shown in a Markdown page (`![fig](chart.png)`, or a raw
+  `<img>`) opens in the image view when clicked, the same way a link does;
+  the cursor over it is `zoom-in`. Back (Backspace, Alt+Left, the ← button)
+  returns to the page at the scroll position it was left at. The renderer
+  puts the image's absolute path in a `data-path` attribute for this; remote
+  (`http(s):`), `data:` and unsupported (e.g. SVG) images get none and are
+  not clickable. An image inside a link is not affected: the link wins.
 
 ## Zoom and pan
 
