@@ -14,6 +14,7 @@ import (
 	"mdview/internal/applog"
 	"mdview/internal/config"
 	"mdview/internal/imgdecode"
+	"mdview/internal/translate"
 
 	webview "github.com/jchv/go-webview2"
 )
@@ -151,6 +152,13 @@ type Viewer struct {
 	resizeHook bool
 	metrics    *metricsStore
 	evals      *evalRegistry
+
+	// Selection translation. All three are touched only on the UI thread.
+	// transSeq numbers the requests, so a late reply for an older request
+	// or for a page that is gone is dropped.
+	translator    translate.Translator
+	translatorKey string
+	transSeq      int
 }
 
 // navigateHTML writes html to a temp file and navigates to it via file://.
@@ -288,6 +296,8 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 		v.prefs.FontSize = size
 		config.Save(v.prefs)
 	})
+
+	w.Bind("goTranslate", v.goTranslate)
 
 	v.display(doc)
 	return v, nil
@@ -460,6 +470,7 @@ func (v *Viewer) display(doc loadedDoc) {
 	v.filePath = doc.path
 	v.scrollY = doc.scrollY
 	v.w.Dispatch(func() {
+		v.transSeq++ // drop a translation that arrives for the old page
 		if doc.img != nil {
 			c := v.imageView()
 			c.SetImage(doc.img)
