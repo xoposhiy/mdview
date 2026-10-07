@@ -6,11 +6,11 @@ Go + WebView2 Markdown viewer for Windows. Source in `src/`, specs in `specs/`.
 
 ```bash
 cd src
-go get github.com/jchv/go-webview2 github.com/yuin/goldmark
-go mod tidy
 go build -ldflags="-H windowsgui" -o ../mdview.exe .
-cp internal/renderer/assets/mathjax.js ..    # displayed pages link this file
 ```
+
+Do not run `go get` without versions: it moves the dependencies to their
+latest versions and makes the local `vendor/` disagree with `go.mod`.
 
 ## Test
 
@@ -18,6 +18,20 @@ cp internal/renderer/assets/mathjax.js ..    # displayed pages link this file
 cd src
 go test ./...
 ```
+
+## Release
+
+When the user says "release" (or "релиз"), run:
+
+```bash
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1
+```
+
+The script runs the tests, builds an optimized exe, closes every running
+mdview (from any location), and copies `mdview.exe` to `C:\path\`. A failed test or build stops it before any window is closed.
+
+When a feature is fully done and tested, and no open questions are left,
+offer to commit and release it.
 
 ## Driving the app without a human (control interface)
 
@@ -90,14 +104,19 @@ instead of sleeping and hoping.
 - MathJax reaches a page in two steps, both of which exist to keep left/right
   navigation fast. A page gets MathJax only when it has a formula on it
   (`needsMathJax` looks for `\(`/`\[` in the finished HTML, so raw HTML counts
-  too), and the pages the window shows link `mathjax.js` beside `mdview.exe`
-  instead of carrying it. Inlining it in every page put 2 MB in each one, and
-  WebView2 spent ~1.6 s per keypress compiling that again and tearing the old
-  copy down — on documents with no formulas at all. Now: ~50 ms without
-  formulas, ~100 ms with. `--export` and "Save as HTML" still inline it,
-  because their output has to open on another machine; `viewer.Renderers` is
-  what splits those two cases apart. A missing `mathjax.js` falls back to
-  inlining, so a stray copy of the exe still shows formulas.
+  too), and the pages the window shows link a MathJax file instead of
+  carrying it. Inlining it in every page put 2 MB in each one, and WebView2
+  spent ~1.6 s per keypress compiling that again and tearing the old copy
+  down — on documents with no formulas at all. Now: ~50 ms without formulas,
+  ~100 ms with. `--export` and "Save as HTML" still inline it, because their
+  output has to open on another machine; `viewer.Renderers` is what splits
+  those two cases apart.
+- The linked MathJax file is the embedded script, which mdview writes itself
+  to `%LOCALAPPDATA%\mdview\mathjax-<hash>.js` when the first page with a
+  formula is displayed (`unpackMathJax`). Nothing has to be copied beside the
+  exe, so a build or a stray copy of the exe needs only `mdview.exe`. The hash
+  in the name keeps a new exe from loading an older MathJax. If the file
+  cannot be written, pages fall back to inlining.
 - The image view draws every frame into an off-screen bitmap and blits it in
   one go, hands GDI only the visible part of the image, and scales the cheap
   way while a zoom/pan gesture is running (a HALFTONE repaint follows 90 ms
