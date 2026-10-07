@@ -72,6 +72,13 @@ func (v *Viewer) dispatchSync(fn func()) error {
 
 // State implements control.API.
 func (v *Viewer) State() any {
+	// The translation settings in v.prefs are the ones from startup; goTranslate
+	// reads the file on every request, so report what the file holds now. Never
+	// report the key itself, only whether there is one.
+	tr := config.Load().Translate
+	if tr.DeepLKey != "" {
+		tr.DeepLKey = "(set)"
+	}
 	var st ViewerState
 	v.dispatchSync(func() {
 		st = ViewerState{
@@ -82,6 +89,7 @@ func (v *Viewer) State() any {
 			HistoryDepth: len(v.history),
 			Prefs:        v.prefs,
 		}
+		st.Prefs.Translate = tr
 		st.ClientWidth, st.ClientHeight = clientSizeOf(uintptr(v.w.Window()))
 		if img := v.img; img != nil && img.zoom != nil {
 			st.Image = &ImageState{
