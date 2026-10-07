@@ -322,6 +322,63 @@ mjx-container svg { color: var(--fg); }
 }
 #toast.show { opacity: 0.92; }
 
+/* ----- Selection translation -----
+   Both elements are children of body, which is not positioned, so
+   position: absolute is in document coordinates and they scroll with the
+   text. z-index keeps them under the overlays (1000). */
+#translate-btn {
+    position: absolute; z-index: 900; display: none;
+    height: 28px; min-width: 38px; padding: 0 9px; border-radius: 999px;
+    border: 1px solid var(--box-border); background: var(--box-bg); color: var(--fg);
+    font: 600 13px 'Segoe UI', system-ui, sans-serif; line-height: 1;
+    cursor: pointer; opacity: 0.7; transition: opacity 0.15s;
+    align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+#translate-btn.visible { display: flex; }
+#translate-btn:hover, #translate-btn.loading { opacity: 1; }
+#translate-btn .tr-spin {
+    display: none; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid var(--box-border); border-top-color: var(--link);
+    animation: tr-spin 0.7s linear infinite;
+}
+#translate-btn.loading .tr-icon { display: none; }
+#translate-btn.loading .tr-spin { display: block; }
+@keyframes tr-spin { to { transform: rotate(360deg); } }
+#translate-card {
+    position: absolute; z-index: 900; display: none;
+    box-sizing: border-box; overflow: auto;
+    background: var(--box-bg); border: 1px solid var(--box-border); color: var(--fg);
+    border-radius: 8px; padding: 6px 12px 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+}
+#translate-card.visible { display: block; }
+#translate-card .tr-head {
+    display: flex; align-items: center; gap: 4px;
+    font: 12px 'Segoe UI', system-ui, sans-serif; opacity: 0.65;
+    position: sticky; top: -6px; background: var(--box-bg); padding: 2px 0 4px;
+}
+#translate-card .tr-dir { flex: 1; letter-spacing: 0.03em; }
+#translate-card .tr-head button {
+    border: none; background: transparent; color: var(--fg); cursor: pointer;
+    font: inherit; font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+}
+#translate-card .tr-head button:hover { color: var(--link); }
+#translate-card .tr-body {
+    font-family: var(--font); font-size: calc(1em - 1px); line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+}
+#translate-card.error .tr-body { color: color-mix(in srgb, #d23c3c 75%, var(--fg)); }
+#translate-card.error .tr-copy { display: none; }
+#translate-card .tr-retry {
+    display: none; margin-top: 8px;
+    border: 1px solid var(--box-border); background: transparent; color: var(--fg);
+    border-radius: 999px; padding: 4px 12px; cursor: pointer;
+    font: 13px 'Segoe UI', system-ui, sans-serif;
+}
+#translate-card .tr-retry:hover { border-color: var(--link); }
+#translate-card.retry .tr-retry { display: inline-block; }
+
 /* ----- Print / "Save as PDF" -----
    The screen layout is wrong on paper: the body carries an inline
    font-size (18px default = 13.5pt, far too big for print), a max-width
@@ -354,7 +411,8 @@ mjx-container svg { color: var(--fg); }
     }
 
     /* UI chrome never belongs in the document. */
-    #settings-btn, #back-btn, #toast, .overlay { display: none !important; }
+    #settings-btn, #back-btn, #toast, .overlay,
+    #translate-btn, #translate-card { display: none !important; }
 
     h1 { font-size: 1.6em; }
     h2 { font-size: 1.3em; }
@@ -405,6 +463,7 @@ window.MathJax = {
       <tr><td>D</td><td>Toggle light / dark theme</td></tr>
       <tr><td>E</td><td>Open in editor</td></tr>
       <tr><td>O</td><td>Show the file in Explorer</td></tr>
+      <tr><td>T</td><td>Translate selection</td></tr>
       <tr><td>Ctrl+S</td><td>Save as HTML&nbsp;…</td></tr>
       <tr><td>F5, Ctrl+R</td><td>Reload file</td></tr>
       <tr><td>Esc</td><td>Close panel / quit</td></tr>
@@ -433,6 +492,16 @@ window.MathJax = {
 
 {{if .Frontmatter}}<div class="frontmatter-wrap">{{.Frontmatter}}</div>{{end}}
 <div class="content">{{.Content}}</div>
+<button id="translate-btn" title="Translate (T)"><span class="tr-icon">文A</span><span class="tr-spin"></span></button>
+<div id="translate-card">
+  <div class="tr-head">
+    <span class="tr-dir"></span>
+    <button class="tr-copy" title="Copy">&#10697;</button>
+    <button class="tr-close" title="Close (Esc)">&times;</button>
+  </div>
+  <div class="tr-body"></div>
+  <button class="tr-retry">Retry</button>
+</div>
 <script>
 if (typeof goExit === 'undefined')         { goExit         = function() {}; }
 if (typeof goReload === 'undefined')       { goReload       = function() {}; }
@@ -624,8 +693,212 @@ function showToast(msg) {
     clearTimeout(_toastTimer);
     _toastTimer = setTimeout(function() { t.classList.remove('show'); }, 2500);
 }
+/* ----- Selection translation -----
+   A button appears under a selection in .content; a click or T sends the
+   text to Go (goTranslate), and the reply turns the button into a card.
+   goTranslate returns "" when the request has started, and the result comes
+   later through mdviewTranslateDone; a request that cannot start returns
+   its error payload at once. The API key never reaches the page. */
+var trBtn = document.getElementById('translate-btn');
+var trCard = document.getElementById('translate-card');
+// A saved HTML file has no Go side, so the feature stays off there.
+var trEnabled = typeof goTranslate !== 'undefined';
+var TR_GAP = 6;
+var trSel = null;        // the selection the button belongs to, in document coordinates
+var trTimer;
+var trMouseDown = false;
+var trPointerX = null;   // client x of the mouseup that ended a mouse selection
+
+function translateOpen() {
+    return trBtn.classList.contains('visible') || trCard.classList.contains('visible');
+}
+function hideTranslate() {
+    trBtn.classList.remove('visible', 'loading');
+    trCard.classList.remove('visible');
+    trSel = null;
+}
+function trClamp(v, lo, hi) { return Math.max(lo, Math.min(v, hi)); }
+
+// trCapture reads the current selection, or returns null when there is
+// nothing to translate in the document.
+function trCapture() {
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    var text = sel.toString();
+    if (!text.trim()) return null;
+    var range = sel.getRangeAt(0);
+    var content = document.querySelector('.content');
+    if (!content || !content.contains(range.commonAncestorContainer)) return null;
+    // A triple click ends the range at the start of the next block, which
+    // adds an empty rect; drop rects with no width.
+    var rects = Array.prototype.filter.call(range.getClientRects(), function(r) { return r.width > 0; });
+    if (!rects.length) return null;
+    var first = rects[0], last = rects[rects.length - 1];
+    var left = Infinity, right = -Infinity;
+    rects.forEach(function(r) { left = Math.min(left, r.left); right = Math.max(right, r.right); });
+    return {
+        text: text,
+        x: (trPointerX !== null ? trPointerX : last.right) + window.scrollX,
+        firstTop: first.top + window.scrollY,
+        lastBottom: last.bottom + window.scrollY,
+        width: right - left
+    };
+}
+
+function trShowButton(s) {
+    trSel = s;
+    trCard.classList.remove('visible');
+    trBtn.classList.remove('loading');
+    trBtn.classList.add('visible');
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var bw = trBtn.offsetWidth, bh = trBtn.offsetHeight;
+    var top = s.lastBottom + TR_GAP;
+    // No room under the last line: put the button above the first line.
+    if (top - window.scrollY + bh > vh) top = s.firstTop - TR_GAP - bh;
+    var left = trClamp(s.x - bw / 2 - window.scrollX, 4, vw - bw - 4) + window.scrollX;
+    trBtn.style.left = left + 'px';
+    trBtn.style.top = top + 'px';
+}
+
+function trCheckSelection() {
+    clearTimeout(trTimer);
+    var s = trCapture();
+    if (s) { trShowButton(s); return; }
+    // A click inside the card can collapse the selection; the card closes
+    // only on mousedown outside, Esc, or a new selection.
+    if (!trCard.classList.contains('visible')) hideTranslate();
+}
+
+function trStart() {
+    if (!trSel) return;
+    var s = trSel;
+    clearTimeout(trTimer); // a pending check would reset the button
+    trCard.classList.remove('visible');
+    trBtn.classList.add('visible', 'loading');
+    goTranslate(s.text).then(function(r) {
+        if (r) mdviewTranslateDone(JSON.parse(r));
+    });
+}
+
+// Called by Go with the result of the latest request. The page fills the
+// card only while the button still waits: the user may have closed it, and
+// Go does not know that.
+function mdviewTranslateDone(res) {
+    if (!trSel || !trBtn.classList.contains('loading')) return;
+    trShowCard(res);
+}
+
+function trShowCard(res) {
+    var s = trSel;
+    trCard.querySelector('.tr-dir').textContent =
+        res.ok ? (res.source || '?') + ' → ' + res.target : 'Translation';
+    trCard.querySelector('.tr-body').textContent = res.ok ? res.text : res.msg;
+    trCard.classList.toggle('error', !res.ok);
+    trCard.classList.toggle('retry', !res.ok && !!res.retry);
+
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var width = Math.min(trClamp(s.width, 280, 520), vw - 16);
+    var left = trClamp(parseFloat(trBtn.style.left) - window.scrollX, 8, vw - width - 8);
+    var below = vh - (s.lastBottom - window.scrollY) - TR_GAP;
+    var above = (s.firstTop - window.scrollY) - TR_GAP;
+    var up = below < above;
+    trCard.style.width = width + 'px';
+    trCard.style.left = (left + window.scrollX) + 'px';
+    trCard.style.maxHeight = Math.min(vh * 0.4, Math.max(up ? above : below, 120) - 8) + 'px';
+    trCard.style.top = '0px';
+    trBtn.classList.remove('visible', 'loading');
+    trCard.classList.add('visible');
+    trCard.scrollTop = 0;
+    var top = up ? s.firstTop - TR_GAP - trCard.offsetHeight : s.lastBottom + TR_GAP;
+    trCard.style.top = top + 'px';
+}
+
+function trCopy() {
+    var text = trCard.classList.contains('error') ? '' : trCard.querySelector('.tr-body').textContent;
+    if (!text) return;
+    function fallback() {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        showToast(ok ? 'Copied' : 'Cannot copy');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() { showToast('Copied'); }, fallback);
+    } else {
+        fallback();
+    }
+}
+
+if (trEnabled) {
+    document.addEventListener('selectionchange', function() {
+        var sel = window.getSelection();
+        // Selecting part of the translation must keep the card open.
+        if (sel && sel.anchorNode && trCard.contains(sel.anchorNode)) return;
+        clearTimeout(trTimer);
+        // A request in flight belongs to its own selection; a new selection
+        // replaces it. The card closes on mousedown, so only the button is
+        // hidden here.
+        if (trBtn.classList.contains('visible')) {
+            trBtn.classList.remove('visible', 'loading');
+            trSel = null;
+        }
+        if (trMouseDown) return; // mouseup checks the selection
+        trTimer = setTimeout(trCheckSelection, 150);
+    });
+    document.addEventListener('mousedown', function(e) {
+        if (trBtn.contains(e.target) || trCard.contains(e.target)) return;
+        trMouseDown = true;
+        trPointerX = null;
+        if (translateOpen()) hideTranslate();
+    }, true);
+    document.addEventListener('mouseup', function(e) {
+        if (!trMouseDown) return;
+        trMouseDown = false;
+        trPointerX = e.clientX;
+        clearTimeout(trTimer);
+        trTimer = setTimeout(trCheckSelection, 150);
+    }, true);
+    // A keyboard selection places the button at the end of the last line.
+    document.addEventListener('keydown', function(e) {
+        if (e.shiftKey || e.ctrlKey) trPointerX = null;
+    }, true);
+    // A click listener fires after the selection has collapsed, so the
+    // button acts on mousedown and keeps the selection.
+    trBtn.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        if (!trBtn.classList.contains('loading')) trStart();
+    });
+    trCard.querySelector('.tr-close').addEventListener('click', hideTranslate);
+    trCard.querySelector('.tr-copy').addEventListener('click', trCopy);
+    trCard.querySelector('.tr-retry').addEventListener('click', function() {
+        trShowButton(trSel);
+        trStart();
+    });
+    // The text moves when the window or the layout width changes.
+    window.addEventListener('resize', hideTranslate);
+}
+
+// translateSelection is the T key: translate what is selected now, without
+// waiting for the button's delay.
+function translateSelection() {
+    if (!trEnabled || trCard.classList.contains('visible') || trBtn.classList.contains('loading')) return;
+    if (!trBtn.classList.contains('visible')) {
+        var s = trCapture();
+        if (!s) return;
+        trShowButton(s);
+    }
+    trStart();
+}
+
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
+        // Before the overlays, so Esc closes the card and never quits.
+        if (translateOpen()) { hideTranslate(); return; }
         if (anyOverlayOpen()) { closeOverlays(); return; }
         goExit();
         return;
@@ -654,6 +927,7 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 's' || e.key === 'S') { toggleSettings(); return; }
     if (e.key === 'w' || e.key === 'W') {
         body.style.maxWidth = body.style.maxWidth === 'none' ? '820px' : 'none';
+        hideTranslate(); // the text has moved
         return;
     }
     if (e.key === 'd' || e.key === 'D') {
@@ -662,6 +936,7 @@ document.addEventListener('keydown', function(e) {
     }
     if (e.key === 'e' || e.key === 'E') { goOpenEditor(); return; }
     if (e.key === 'o' || e.key === 'O') { goReveal().then(toastIfMsg); return; }
+    if (e.key === 't' || e.key === 'T') { translateSelection(); return; }
     // Below the INPUT guard above, so the size slider keeps its own Backspace.
     if (e.key === 'Backspace') { e.preventDefault(); goBackAndToast(); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); goPrev().then(toastIfMsg); return; }
