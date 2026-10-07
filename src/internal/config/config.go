@@ -2,6 +2,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -11,11 +13,24 @@ type Config struct {
 	Font     string `json:"font"`     // font id, e.g. "sans", "serif", "reading", "mono"
 	FontSize int    `json:"fontSize"` // body font size in px
 	ImageBg  string `json:"imageBg"`  // letterbox background behind images: "black" or "white"
+
+	// Translate is edited by hand in the file. Save never writes it.
+	Translate Translate `json:"translate"`
+}
+
+// Translate holds the settings for translating the selection.
+type Translate struct {
+	DeepLKey string `json:"deeplKey"`
+	To       string `json:"to"`       // target language, e.g. "RU"
+	Fallback string `json:"fallback"` // target when the text is already in To
 }
 
 // Default returns the built-in default preferences.
 func Default() Config {
-	return Config{Theme: "light", Font: "sans", FontSize: 18, ImageBg: "black"}
+	return Config{
+		Theme: "light", Font: "sans", FontSize: 18, ImageBg: "black",
+		Translate: Translate{To: "RU", Fallback: "EN"},
+	}
 }
 
 // DirEnv names an environment variable that moves the preferences file
@@ -23,7 +38,8 @@ func Default() Config {
 // does not overwrite the person's own theme, font and background choices.
 const DirEnv = "MDVIEW_CONFIG_DIR"
 
-func configPath() (string, error) {
+// Path returns the full path of the preferences file.
+func Path() (string, error) {
 	if dir := os.Getenv(DirEnv); dir != "" {
 		return filepath.Join(dir, "config.json"), nil
 	}
@@ -36,7 +52,7 @@ func configPath() (string, error) {
 
 func Load() Config {
 	cfg := Default()
-	path, err := configPath()
+	path, err := Path()
 	if err != nil {
 		return cfg
 	}
@@ -50,12 +66,40 @@ func Load() Config {
 	return cfg
 }
 
+// Save writes the appearance fields of cfg into the file. Other keys in the
+// file, such as "translate" or keys the user added by hand, stay as they are
+// on disk: the user may edit the file while mdview runs, and the in-memory
+// copy is then out of date.
 func Save(cfg Config) {
-	path, err := configPath()
+	path, err := Path()
 	if err != nil {
 		return
 	}
+	m := map[string]json.RawMessage{}
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if json.Unmarshal(data, &m) != nil {
+			// The user is in the middle of an edit. Overwriting the file
+			// would lose it; losing one theme change is better.
+			return
+		}
+		if m == nil { // the file holds "null"
+			m = map[string]json.RawMessage{}
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return
+	}
+	set := func(key string, v any) {
+		b, _ := json.Marshal(v)
+		m[key] = b
+	}
+	set("theme", cfg.Theme)
+	set("font", cfg.Font)
+	set("fontSize", cfg.FontSize)
+	set("imageBg", cfg.ImageBg)
+
 	os.MkdirAll(filepath.Dir(path), 0755)
-	data, _ := json.Marshal(cfg)
-	os.WriteFile(path, data, 0644)
+	out, _ := json.MarshalIndent(m, "", "  ")
+	os.WriteFile(path, out, 0644)
 }
