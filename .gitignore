@@ -1,7 +1,4 @@
 *.exe
-# Build output: a copy of src/internal/renderer/assets/mathjax.js, which the
-# displayed pages link instead of inlining.
-/mathjax.js
 dist/
 debug.png
 src/vendor/

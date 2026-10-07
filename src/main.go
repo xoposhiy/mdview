@@ -38,7 +38,7 @@ func main() {
 	// wrong, so there is nothing to check here first: a second read before
 	// the window opens would only render or decode the file twice.
 	v, err := viewer.New(path, cfg, viewer.Renderers{
-		Display:    renderer.RenderLinked(mathJaxPath()),
+		Display:    renderer.RenderLinked(mathJaxDir()),
 		Standalone: renderer.RenderWithTheme,
 	})
 	if err != nil {
@@ -65,21 +65,17 @@ func main() {
 	v.Run()
 }
 
-// mathJaxPath returns the mathjax.js that ships beside mdview.exe, or "" when
-// there is none. Displayed pages link that file instead of carrying their own
-// copy of it; see renderer.RenderLinked for why. The build puts the file
-// there, so "" means someone moved the exe on its own — the page then falls
-// back to the inlined copy and still shows formulas, only slower.
-func mathJaxPath() string {
-	exe, err := os.Executable()
+// mathJaxDir returns the folder that displayed pages load MathJax from:
+// %LOCALAPPDATA%\mdview. mdview writes the file there itself the first time a
+// page needs it; see renderer.RenderLinked for why pages link the script
+// instead of carrying it. The folder beside mdview.exe is not used, because
+// it may be read-only, such as one under C:\Program Files.
+func mathJaxDir() string {
+	dir, err := os.UserCacheDir()
 	if err != nil {
-		return ""
+		dir = os.TempDir()
 	}
-	p := filepath.Join(filepath.Dir(exe), "mathjax.js")
-	if _, err := os.Stat(p); err != nil {
-		return ""
-	}
-	return p
+	return filepath.Join(dir, "mdview")
 }
 
 // parseFlags splits argv into mdview's own flags and the positional arguments

@@ -3,12 +3,15 @@ package renderer
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
 	"html"
 	"html/template"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"mdview/internal/config"
 	"mdview/internal/imgdecode"
@@ -124,11 +127,11 @@ func Render(content []byte) (string, error) {
 // The page depends on no other file — MathJax is inlined — so it can be opened
 // on another machine. That is what --export and "Save as HTML" need.
 func RenderWithTheme(content []byte, prefs config.Config, scrollY int, baseDir string) (string, error) {
-	return render(content, prefs, scrollY, baseDir, "")
+	return render(content, prefs, scrollY, baseDir, nil)
 }
 
-// RenderLinked returns a render function that links MathJax from mathJaxPath
-// instead of inlining it.
+// RenderLinked returns a render function that links MathJax from a file in
+// dir instead of inlining it.
 //
 // Inlining puts 2 MB of script in every page. WebView2 then compiles it again
 // on every navigation, and tearing the old page's copy down blocks the new
@@ -136,23 +139,36 @@ func RenderWithTheme(content []byte, prefs config.Config, scrollY int, baseDir s
 // documents with no formulas in them at all. A linked script is loaded from
 // the same URL every time, so that cost is paid once.
 //
+// The file is the embedded MathJax, written into dir by the first page that
+// has a formula on it (see unpackMathJax), so a session without formulas
+// writes nothing. When the file cannot be written, pages fall back to
+// inlining: formulas still show, only slower.
+//
 // The pages this produces only work on the machine that wrote them, so use it
-// for what the viewer displays, never for what it writes to disk. An empty
-// mathJaxPath falls back to inlining, which is what keeps a copy of mdview.exe
-// with no mathjax.js beside it able to show formulas.
-func RenderLinked(mathJaxPath string) func([]byte, config.Config, int, string) (string, error) {
+// for what the viewer displays, never for what it writes to disk.
+func RenderLinked(dir string) func([]byte, config.Config, int, string) (string, error) {
+	var once sync.Once
 	src := ""
-	if mathJaxPath != "" {
-		src = fileURL(mathJaxPath)
+	mathJaxSrc := func() string {
+		once.Do(func() {
+			path, err := unpackMathJax(dir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: cannot write MathJax to %s, inlining it: %v\n", dir, err)
+				return
+			}
+			src = fileURL(path)
+		})
+		return src
 	}
 	return func(content []byte, prefs config.Config, scrollY int, baseDir string) (string, error) {
-		return render(content, prefs, scrollY, baseDir, src)
+		return render(content, prefs, scrollY, baseDir, mathJaxSrc)
 	}
 }
 
-// render is the body shared by RenderWithTheme and RenderLinked. mathJaxSrc is
-// the URL to load MathJax from, or "" to inline the script.
-func render(content []byte, prefs config.Config, scrollY int, baseDir, mathJaxSrc string) (string, error) {
+// render is the body shared by RenderWithTheme and RenderLinked. mathJaxSrc
+// returns the URL to load MathJax from, or "" to inline the script; it is
+// called only for a page that needs MathJax. A nil mathJaxSrc inlines.
+func render(content []byte, prefs config.Config, scrollY int, baseDir string, mathJaxSrc func() string) (string, error) {
 	def := config.Default()
 	if prefs.Theme == "" {
 		prefs.Theme = def.Theme
@@ -191,10 +207,14 @@ func render(content []byte, prefs config.Config, scrollY int, baseDir, mathJaxSr
 	// configuration. Most documents are in that case, and it is the difference
 	// between a left/right keypress taking 150 ms and taking 50 ms.
 	if data.HasMath {
-		if mathJaxSrc == "" {
+		src := ""
+		if mathJaxSrc != nil {
+			src = mathJaxSrc()
+		}
+		if src == "" {
 			data.MathJax = template.JS(mathJaxScript)
 		}
-		data.MathJaxSrc = template.URL(mathJaxSrc)
+		data.MathJaxSrc = template.URL(src)
 	}
 
 	var out bytes.Buffer
