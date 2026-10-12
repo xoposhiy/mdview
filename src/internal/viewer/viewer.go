@@ -236,6 +236,7 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 	v.setTitle(TitleFromPath(filePath))
 
 	applyWindowIcon(w.Window())
+	applyTitleBarTheme(uintptr(w.Window()), prefs.Theme)
 
 	w.Bind("goEvalResult", func(id, value string) {
 		v.evals.deliver(id, value)
@@ -284,6 +285,7 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 
 	w.Bind("goSaveTheme", func(theme string) {
 		v.prefs.Theme = theme
+		applyTitleBarTheme(uintptr(w.Window()), theme)
 		config.Save(v.prefs)
 	})
 
