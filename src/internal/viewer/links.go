@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mdview/internal/imgdecode"
+	"mdview/internal/tabular"
 )
 
 type linkKind int
@@ -14,7 +15,7 @@ type linkKind int
 const (
 	linkInPage linkKind = iota
 	// linkViewable is a link mdview can open itself, in-window: a Markdown
-	// document or a supported image.
+	// document, a CSV or TSV table, or a supported image.
 	linkViewable
 	linkExternal
 )
@@ -58,9 +59,10 @@ func classifyLink(href, baseDir string) (linkKind, string) {
 }
 
 // isViewableExt reports whether mdview can display a file with this
-// extension itself: a Markdown document or a supported image. ext is
-// compared case-insensitively and may or may not already be lower case.
+// extension itself: a Markdown document, a CSV or TSV table, or a supported
+// image. ext is compared case-insensitively and may or may not already be
+// lower case.
 func isViewableExt(ext string) bool {
 	ext = strings.ToLower(ext)
-	return ext == ".md" || ext == ".markdown" || imgdecode.IsImage(ext)
+	return ext == ".md" || ext == ".markdown" || tabular.IsTable(ext) || imgdecode.IsImage(ext)
 }

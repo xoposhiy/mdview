@@ -27,6 +27,8 @@ func TestClassifyLink(t *testing.T) {
 		{"query stripped from local file", "docs/spec.pdf?v=2", linkExternal, `C:\docs\docs\spec.pdf`},
 		{"relative image link opens in-app", "chart.png", linkViewable, `C:\docs\chart.png`},
 		{"mixed case image extension", "photo.JPG", linkViewable, `C:\docs\photo.JPG`},
+		{"csv table opens in-app", "data.csv", linkViewable, `C:\docs\data.csv`},
+		{"tsv table, mixed case ext", "data.TSV", linkViewable, `C:\docs\data.TSV`},
 		{"unsupported image-like extension stays external", "scan.tiff", linkExternal, `C:\docs\scan.tiff`},
 
 		// The renderer's wikilinks emit an already-resolved absolute path with

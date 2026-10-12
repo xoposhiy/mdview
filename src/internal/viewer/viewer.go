@@ -14,6 +14,7 @@ import (
 	"mdview/internal/applog"
 	"mdview/internal/config"
 	"mdview/internal/imgdecode"
+	"mdview/internal/tabular"
 	"mdview/internal/translate"
 
 	webview "github.com/jchv/go-webview2"
@@ -363,6 +364,10 @@ func (v *Viewer) saveHTMLAs() string {
 	if err != nil {
 		return "Error: " + err.Error()
 	}
+	content, err = tabular.Prepare(v.filePath, content)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
 	html, err := v.render.Standalone(content, v.prefs, 0, filepath.Dir(v.filePath))
 	if err != nil {
 		return "Error: " + err.Error()
@@ -458,6 +463,11 @@ func (v *Viewer) load(path string, scrollY int) (loadedDoc, error) {
 	}
 
 	render := v.metrics.track(stageRender)
+	content, err = tabular.Prepare(path, content)
+	if err != nil {
+		render()
+		return loadedDoc{}, err
+	}
 	html, err := v.render.Display(content, v.prefs, scrollY, filepath.Dir(path))
 	render()
 	if err != nil {

@@ -26,6 +26,13 @@ mdview file.md
 - Over-wide tables get their own horizontal scroller instead of breaking the
   reading column
 
+**CSV and TSV**
+
+- `.csv` and `.tsv` files open as a table, styled and sortable like a Markdown
+  table; the first row is the header
+- CSV separated by semicolons, as Excel writes it in some locales, is detected
+  from the first line
+
 **Reading**
 
 - 7 themes: Cream, GitHub, Solarized Light, Dark, Solarized Dark, Dracula, Nord
@@ -37,12 +44,13 @@ mdview file.md
 
 - Live reload — the file is watched, and edits re-render with your scroll
   position preserved
-- Arrow keys walk the other `.md` files in the same directory
+- Arrow keys walk the other `.md`, `.csv` and `.tsv` files and images in the
+  same directory
 - Open the source in your editor (`%EDITOR%` / `%VISUAL%`, else the shell's
   edit verb, else Notepad)
 - Save the rendered page as a standalone HTML file (a Save-as dialog asks
   where it goes)
-- `--export=out.html file.md` renders headlessly and exits, no window
+- `--export=out.html file.md` (or `file.csv`) renders headlessly and exits, no window
 
 ## Keyboard shortcuts
 

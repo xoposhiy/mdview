@@ -10,6 +10,7 @@ import (
 	"mdview/internal/config"
 	"mdview/internal/control"
 	"mdview/internal/renderer"
+	"mdview/internal/tabular"
 	"mdview/internal/viewer"
 	"mdview/internal/watcher"
 )
@@ -27,7 +28,7 @@ func main() {
 	}
 
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: mdview [-control-port=N] <file.md|.png|.jpg|.bmp|.gif>")
+		fmt.Fprintln(os.Stderr, "usage: mdview [-control-port=N] <file.md|.csv|.tsv|.png|.jpg|.bmp|.gif>")
 		os.Exit(1)
 	}
 
@@ -101,16 +102,21 @@ func parseFlags(argv []string) (args []string, exportPath string, controlPort in
 	return args, exportPath, controlPort
 }
 
-// exportHTML renders a Markdown file to a standalone HTML file and exits.
+// exportHTML renders a Markdown, CSV or TSV file to a standalone HTML file and exits.
 func exportHTML(args []string, outPath string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: mdview --export=<output.html> <file.md>")
+		fmt.Fprintln(os.Stderr, "usage: mdview --export=<output.html> <file.md|.csv|.tsv>")
 		os.Exit(1)
 	}
 	mdPath := args[0]
 	content, err := os.ReadFile(mdPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error reading file: %v\n", err)
+		os.Exit(1)
+	}
+	content, err = tabular.Prepare(mdPath, content)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error reading table: %v\n", err)
 		os.Exit(1)
 	}
 	html, err := renderer.RenderWithTheme(content, config.Default(), 0, filepath.Dir(mdPath))
