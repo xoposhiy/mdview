@@ -153,16 +153,31 @@ tr:nth-child(even) td { background: var(--row-even); }
 .content th[data-sortable]::after { content: '\00a0\00a0'; display: inline-block; width: 1em; opacity: 0.4; }
 .content th[data-dir="asc"]::after { content: ' \25b2'; opacity: 1; }
 .content th[data-dir="desc"]::after { content: ' \25bc'; opacity: 1; }
-.table-wide-wrapper {
-    overflow-x: auto;
-    margin-top: 1.2em;
-    margin-bottom: 1.2em;
-    box-sizing: border-box;
+
+/* A table in .content sits in a box: the box carries the width and the
+   margins (see layoutTable), the inner div scrolls, and the width buttons sit
+   in the margin above the box, outside the scrolling part. */
+.table-box { position: relative; margin: 1.2em 0; }
+.table-scroll { overflow-x: auto; }
+.table-box table { margin: 0 auto; }
+.table-tools {
+    position: absolute; right: 0; bottom: 100%;
+    display: none; gap: 3px; padding-bottom: 2px;
+    opacity: 0; transition: opacity 0.15s;
 }
-.table-wide-wrapper > table { margin: 0 auto; width: max-content; }
+.table-box.can-widen > .table-tools { display: flex; }
+.table-box.can-widen:hover > .table-tools { opacity: 1; }
+.table-tools button {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 20px; padding: 0;
+    border: 1px solid var(--table-border); border-radius: 3px;
+    background: var(--bg); color: var(--fg); opacity: 0.6; cursor: pointer;
+}
+.table-tools button:hover { opacity: 1; }
+.table-tools button.active { background: var(--th-bg); opacity: 1; }
 
 /* Frontmatter properties table (Obsidian-style).
-   Lives outside .content so the sortable-header and wide-table JS skips it. */
+   Lives outside .content so the sortable-header and wide-block JS skips it. */
 .frontmatter-wrap { margin: 0 0 2em; }
 table.frontmatter {
     border-collapse: collapse;
@@ -250,6 +265,12 @@ del { opacity: 0.55; }
 /* Math */
 .math-display { display: block; text-align: center; margin: 1.2em 0; overflow-x: auto; overflow-y: hidden; }
 mjx-container svg { color: var(--fg); }
+
+/* Wide blocks. See initWideBlocks: the script sets the wrapper's width and
+   margins. These rules come after the table, pre and math rules so that
+   they override those rules' margins and overflow. */
+.wide-wrapper { overflow-x: auto; overflow-y: hidden; }
+.wide-wrapper > * { width: max-content; max-width: none; margin: 0 auto; overflow: visible; }
 
 /* ----- Overlays (help + settings) ----- */
 .overlay {
@@ -412,7 +433,7 @@ mjx-container svg { color: var(--fg); }
 
     /* UI chrome never belongs in the document. */
     #settings-btn, #back-btn, #toast, .overlay,
-    #translate-btn, #translate-card { display: none !important; }
+    #translate-btn, #translate-card, .table-tools { display: none !important; }
 
     h1 { font-size: 1.6em; }
     h2 { font-size: 1.3em; }
@@ -425,14 +446,20 @@ mjx-container svg { color: var(--fg); }
     pre, blockquote, table, img, .math-display { break-inside: avoid; page-break-inside: avoid; }
     tr, li { break-inside: avoid; page-break-inside: avoid; }
 
-    /* initWideTables() sets a viewport-sized width and a negative margin
-       inline; both push the table off the printed page. */
-    .table-wide-wrapper {
+    /* initWideBlocks() sets a window-sized width and a negative margin
+       inline; both push the block off the printed page. */
+    .wide-wrapper {
         width: auto !important;
         margin-left: 0 !important;
         overflow: visible !important;
     }
-    .table-wide-wrapper > table { width: 100%; }
+    .wide-wrapper > * { width: auto; }
+    .table-box {
+        width: auto !important;
+        margin-left: 0 !important;
+    }
+    .table-scroll { overflow: visible; }
+    .table-box table { width: 100% !important; }
 
     a { text-decoration: underline; }
 }
@@ -634,46 +661,148 @@ document.addEventListener('click', function(e) {
 
 document.getElementById('back-btn').addEventListener('click', goBackAndToast);
 
-function initWideTables() {
-    var content = document.querySelector('.content');
-    if (!content) return;
-    var vw = document.documentElement.clientWidth;
-    var contentLeft = content.getBoundingClientRect().left;
-    document.querySelectorAll('.content table').forEach(function(tbl) {
-        if (tbl.closest('.table-wide-wrapper')) return;
-        if (tbl.offsetWidth > content.clientWidth) {
-            var wrapper = document.createElement('div');
-            wrapper.className = 'table-wide-wrapper';
-            wrapper.style.width = vw + 'px';
-            wrapper.style.marginLeft = (-contentLeft) + 'px';
-            tbl.parentNode.insertBefore(wrapper, tbl);
-            wrapper.appendChild(tbl);
-        }
+/* ----- Wide blocks -----
+   A code block or display formula that does not fit the text column gets
+   the whole window width, centred on the window, and scrolls only when even
+   that is not enough. Tables do the same unless the reader has chosen a
+   width for them (see layoutTable). Other blocks keep the column: a
+   wrapping paragraph would just turn into one long line. */
+var WIDE_BLOCKS = '.content pre, .content .math-display';
+function pageMetrics() {
+    return {
+        vw: document.documentElement.clientWidth,
+        gutter: parseFloat(getComputedStyle(document.body).paddingLeft) || 0
+    };
+}
+function isTooWide(el) {
+    return el.scrollWidth > el.clientWidth + 1 ||
+           el.offsetWidth > el.parentElement.clientWidth + 1;
+}
+function initWideBlocks() {
+    var m = pageMetrics(), vw = m.vw, gutter = m.gutter;
+    document.querySelectorAll('.table-box').forEach(function(box) { layoutTable(box, m); });
+    document.querySelectorAll(WIDE_BLOCKS).forEach(function(el) {
+        // A block inside a table cell or a code block widens with its container.
+        if (el.parentElement.closest('table, pre, .wide-wrapper')) return;
+        if (!isTooWide(el)) return;
+        var cs = getComputedStyle(el);
+        var wrapper = document.createElement('div');
+        wrapper.className = 'wide-wrapper';
+        wrapper.style.width = (vw - 2 * gutter) + 'px';
+        wrapper.style.marginLeft = (gutter - el.getBoundingClientRect().left) + 'px';
+        // The wrapper scrolls, so the block's own margins would no longer
+        // collapse with the neighbours' margins; the wrapper carries them.
+        wrapper.style.marginTop = cs.marginTop;
+        wrapper.style.marginBottom = cs.marginBottom;
+        el.parentNode.insertBefore(wrapper, el);
+        wrapper.appendChild(el);
     });
 }
-function unwrapWideTables() {
-    document.querySelectorAll('.table-wide-wrapper').forEach(function(w) {
-        var tbl = w.querySelector('table');
-        if (tbl) w.parentNode.insertBefore(tbl, w);
+/* ----- Table width -----
+   A table that the text column squeezes (its cells wrap, or it does not fit
+   at all) shows three buttons above its top-right corner on hover: text
+   width, wider, and window width. "Wider" is half way between the other two.
+   Until the reader picks one, the table is "auto": it keeps the text column
+   while it fits there, and otherwise gets its natural width, centred on the
+   window, like the other wide blocks. */
+var TABLE_WIDTHS = [
+    {mode: 'text',   title: 'Text width',   bar: 6},
+    {mode: 'wider',  title: 'Wider',        bar: 11},
+    {mode: 'window', title: 'Window width', bar: 16}
+];
+function initTableBoxes() {
+    document.querySelectorAll('.content table').forEach(function(tbl) {
+        if (tbl.parentElement.closest('table, .table-box')) return;
+        var box = document.createElement('div');
+        box.className = 'table-box';
+        var tools = document.createElement('div');
+        tools.className = 'table-tools';
+        TABLE_WIDTHS.forEach(function(w) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.title = w.title;
+            b.dataset.mode = w.mode;
+            var x = (20 - w.bar) / 2;
+            b.innerHTML = '<svg width="20" height="10" viewBox="0 0 20 10" aria-hidden="true">' +
+                '<path d="M0.5 0V10M19.5 0V10" stroke="currentColor" stroke-width="1" opacity="0.5"/>' +
+                '<rect x="' + x + '" y="2" width="' + w.bar + '" height="6" fill="currentColor"/></svg>';
+            // Keep the focus where it is, so the page's keys keep working.
+            b.addEventListener('mousedown', function(e) { e.preventDefault(); });
+            b.addEventListener('click', function() {
+                box.dataset.mode = w.mode;
+                layoutTable(box, pageMetrics());
+            });
+            tools.appendChild(b);
+        });
+        var scroll = document.createElement('div');
+        scroll.className = 'table-scroll';
+        tbl.parentNode.insertBefore(box, tbl);
+        box.appendChild(tools);
+        box.appendChild(scroll);
+        scroll.appendChild(tbl);
+    });
+}
+function layoutTable(box, m) {
+    var tbl = box.querySelector('table');
+    box.style.width = '';
+    box.style.marginLeft = '';
+    tbl.style.width = 'max-content';
+    var natural = tbl.offsetWidth;
+    tbl.style.width = '';
+    var column = box.clientWidth;
+    var squeezed = tbl.offsetWidth; // the width with its cells wrapped
+    var full = m.vw - 2 * m.gutter;
+    var mode = box.dataset.mode || 'auto';
+    var width = column;
+    if (mode === 'window') width = full;
+    else if (mode === 'wider') width = (column + full) / 2;
+    else if (mode === 'auto' && squeezed > column + 1) {
+        width = Math.min(natural, full);
+        tbl.style.width = 'max-content';
+    }
+    if (width > column) {
+        box.style.width = width + 'px';
+        box.style.marginLeft = ((m.vw - width) / 2 - box.getBoundingClientRect().left) + 'px';
+    } else {
+        width = column;
+    }
+    var active = width === column ? 'text' : mode;
+    box.classList.toggle('can-widen', natural > column + 1 && full > column + 8);
+    box.querySelectorAll('.table-tools button').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.mode === active);
+    });
+}
+function unwrapWideBlocks() {
+    document.querySelectorAll('.wide-wrapper').forEach(function(w) {
+        while (w.firstChild) w.parentNode.insertBefore(w.firstChild, w);
         w.parentNode.removeChild(w);
     });
 }
+function rewrapWideBlocks() {
+    unwrapWideBlocks();
+    initWideBlocks();
+}
 (function() {
     var resizeTimer;
-    var ro = new ResizeObserver(function() {
+    function schedule() {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(function() {
-            unwrapWideTables();
-            initWideTables();
-        }, 200);
-    });
+        resizeTimer = setTimeout(rewrapWideBlocks, 200);
+    }
+    // The column stops growing at its max-width, so a wider window does not
+    // resize .content; the window's own resize covers that case.
+    window.addEventListener('resize', schedule);
     var content = document.querySelector('.content');
-    if (content) ro.observe(content);
+    if (content) new ResizeObserver(schedule).observe(content);
 })();
 window.addEventListener('load', function() {
     window.focus();
+    initTableBoxes();
     window.scrollTo(0, {{.ScrollY}});
-    initWideTables();
+    initWideBlocks();
+    // Formulas get their real width only after MathJax has typeset them.
+    if (typeof MathJax !== 'undefined' && MathJax.startup && MathJax.startup.promise) {
+        MathJax.startup.promise.then(rewrapWideBlocks);
+    }
     // Every navigation is a full page load, so this is the only moment the
     // back button's visibility needs re-evaluating.
     goCanGoBack().then(function(can) {
