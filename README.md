@@ -13,8 +13,8 @@ mdview file.md
 **Markdown**
 
 - Full GitHub Flavored Markdown: tables, task lists, strikethrough, autolinks
-- LaTeX math via MathJax — inline `$...$` and display `$$...$$`, rendered
-  without mangling underscores or braces
+- LaTeX math via MathJax — inline `$...$` or `\(...\)` and display `$$...$$`
+  or `\[...\]`, rendered without mangling underscores or braces
 - Obsidian-style YAML frontmatter shown as a properties table above the
   document; nested keys flatten to `source.file`, list values render as pills
 - Obsidian-style wikilinks — `[[note]]`, `[[note|label]]`, `[[folder/note]]` —
