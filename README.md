@@ -76,6 +76,18 @@ cd src
 go build -ldflags="-H windowsgui" -o ../mdview.exe .
 ```
 
+## Local releases
+
+Run `./scripts/release.ps1` to test, build, and install `C:\path\mdview.exe`.
+The script checks startup in a hidden window before replacing the installed
+executable. Use `-Target` for a separate install or `-CheckOnly` to check a build
+without installing it.
+
+Launch `mdview.exe` directly. After a release, each window from that install
+reopens its current file with the same scroll position and window placement.
+The old window stays open until its replacement is ready. Reopen any window
+from a build installed before this update feature once to enable it.
+
 `-H windowsgui` suppresses the console window when launching from Explorer.
 
 ## Test

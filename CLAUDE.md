@@ -21,17 +21,14 @@ go test ./...
 
 ## Release
 
-When the user says "release" (or "релиз"), run:
+After a change to mdview's behavior or when the user asks for a release, run:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1
 ```
 
-The script runs the tests, builds an optimized exe, closes every running
-mdview (from any location), and copies `mdview.exe` to `C:\path\`. A failed test or build stops it before any window is closed.
-
-When a feature is fully done and tested, and no open questions are left,
-offer to commit and release it.
+See [local releases](README.md#local-releases) for the install path and window
+update behavior. Pass `-CheckOnly` to build and check startup without installing.
 
 ## Driving the app without a human (control interface)
 

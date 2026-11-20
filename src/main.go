@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"mdview/internal/applog"
 	"mdview/internal/config"
 	"mdview/internal/control"
 	"mdview/internal/renderer"
@@ -20,20 +22,36 @@ func main() {
 		viewer.EnableDPIAwareness()
 	}
 
-	args, exportPath, controlPort := parseFlags(os.Args[1:])
+	args, exportPath, controlPort, resumeID := parseFlags(os.Args[1:])
 
 	if exportPath != "" {
 		exportHTML(args, exportPath)
 		return
 	}
 
-	if len(args) < 1 {
+	var path string
+	var resume *resumeInput
+	if resumeID != "" {
+		var err error
+		resume, err = readResume(resumeID)
+		if err != nil {
+			applog.Write("Cannot resume window: %v", err)
+			fmt.Fprintf(os.Stderr, "error: cannot resume window: %v\n", err)
+			os.Exit(1)
+		}
+		path = resume.state.File
+	} else if len(args) > 0 {
+		path = args[0]
+	} else {
 		fmt.Fprintln(os.Stderr, "usage: mdview [-control-port=N] <file.md|.csv|.tsv|.png|.jpg|.bmp|.gif>")
 		os.Exit(1)
 	}
 
-	path := args[0]
 	cfg := config.Load()
+	var state *viewer.WindowState
+	if resume != nil {
+		state = &resume.state
+	}
 
 	// viewer.New reads and displays the file itself and reports what went
 	// wrong, so there is nothing to check here first: a second read before
@@ -41,7 +59,7 @@ func main() {
 	v, err := viewer.New(path, cfg, viewer.Renderers{
 		Display:    renderer.RenderLinked(mathJaxDir()),
 		Standalone: renderer.RenderWithTheme,
-	})
+	}, state)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -63,6 +81,21 @@ func main() {
 	}
 	defer w.Stop()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if resume != nil {
+		go func() {
+			if err := resume.show(ctx, v); err != nil {
+				applog.Write("Cannot show replacement window: %v", err)
+				fmt.Fprintf(os.Stderr, "error: cannot show replacement window: %v\n", err)
+				v.Quit()
+				return
+			}
+			watchForRelease(ctx, v, controlPort)
+		}()
+	} else if buildID != "" {
+		go watchForRelease(ctx, v, controlPort)
+	}
 	v.Run()
 }
 
@@ -82,12 +115,14 @@ func mathJaxDir() string {
 // parseFlags splits argv into mdview's own flags and the positional arguments
 // left over. controlPort is -1 when -control-port was not given, because 0 is
 // itself a valid value: it asks the control server for a free port.
-func parseFlags(argv []string) (args []string, exportPath string, controlPort int) {
+func parseFlags(argv []string) (args []string, exportPath string, controlPort int, resumeID string) {
 	controlPort = -1
 	for _, arg := range argv {
 		switch {
 		case strings.HasPrefix(arg, "--export="):
 			exportPath = strings.TrimPrefix(arg, "--export=")
+		case strings.HasPrefix(arg, "--resume="):
+			resumeID = strings.TrimPrefix(arg, "--resume=")
 		case strings.HasPrefix(arg, "-control-port="):
 			n, err := strconv.Atoi(strings.TrimPrefix(arg, "-control-port="))
 			if err != nil {
@@ -99,7 +134,7 @@ func parseFlags(argv []string) (args []string, exportPath string, controlPort in
 			args = append(args, arg)
 		}
 	}
-	return args, exportPath, controlPort
+	return args, exportPath, controlPort, resumeID
 }
 
 // exportHTML renders a Markdown, CSV or TSV file to a standalone HTML file and exits.

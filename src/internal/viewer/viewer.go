@@ -1,6 +1,7 @@
 package viewer
 
 import (
+	"errors"
 	"image"
 	"os"
 	"os/exec"
@@ -188,8 +189,6 @@ func (v *Viewer) setTitle(title string) {
 	v.w.SetTitle(title)
 }
 
-// New creates a Viewer, binds hotkey handlers, and sets the initial HTML.
-// render.Display is called on reload/navigate to convert file content to HTML.
 func webviewDataPath() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -198,7 +197,9 @@ func webviewDataPath() string {
 	return filepath.Join(dir, "mdview", "webview")
 }
 
-func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error) {
+// New creates a Viewer and displays the initial document. A replacement
+// process can supply the window state captured by the previous process.
+func New(filePath string, prefs config.Config, render Renderers, resume *WindowState) (*Viewer, error) {
 	// Everything derived from the path (image src URLs, data-path, link
 	// targets, the file list for arrow keys) assumes an absolute path. A
 	// relative path from the terminal would otherwise be joined with the
@@ -206,22 +207,27 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 	if abs, err := filepath.Abs(filePath); err == nil {
 		filePath = abs
 	}
-	tmp, _ := os.CreateTemp("", "mdview_*.html")
+	tmp, err := os.CreateTemp("", "mdview_*.html")
+	if err != nil {
+		return nil, err
+	}
 	tmp.Close()
 	v := &Viewer{
 		filePath: filePath,
 		prefs:    prefs,
-		scrollY:  0,
 		tmpHTML:  tmp.Name(),
 		render:   render,
 		metrics:  newMetricsStore(),
 		evals:    newEvalRegistry(),
 	}
+	if resume != nil {
+		v.scrollY = resume.ScrollY
+	}
 
 	// Load the file before creating any window. A bad path or a corrupt file
 	// then exits with a message on stderr instead of flashing an empty
 	// window — and the file is still read and rendered exactly once.
-	doc, err := v.load(filePath, 0)
+	doc, err := v.load(filePath, v.scrollY)
 	if err != nil {
 		os.Remove(v.tmpHTML)
 		return nil, err
@@ -231,9 +237,20 @@ func New(filePath string, prefs config.Config, render Renderers) (*Viewer, error
 		AutoFocus: true,
 		DataPath:  webviewDataPath(),
 	})
+	if w == nil {
+		os.Remove(v.tmpHTML)
+		return nil, errors.New("cannot create the WebView2 window")
+	}
 	v.w = w
 	width, height := scaleForDPI(uintptr(w.Window()), defaultWindowWidth, defaultWindowHeight)
 	w.SetSize(width, height, webview.HintNone)
+	if resume != nil {
+		if err := v.prepareReplacement(*resume); err != nil {
+			w.Destroy()
+			os.Remove(v.tmpHTML)
+			return nil, err
+		}
+	}
 	v.setTitle(TitleFromPath(filePath))
 
 	applyWindowIcon(w.Window())
@@ -408,7 +425,7 @@ func (v *Viewer) saveImageAs() string {
 }
 
 // Reload re-reads the file and updates the view. Safe to call from any goroutine.
-func (v *Viewer) Reload() { v.reload() }
+func (v *Viewer) Reload() { v.w.Dispatch(v.reload) }
 
 // Run starts the event loop. Blocks until the window is closed.
 func (v *Viewer) Run() {
