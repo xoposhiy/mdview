@@ -19,3 +19,15 @@
 | D | +42 | positive |
 | E | abc | not a number |
 | F | 7 | small |
+
+## Publication dates table
+
+| Paper | Date |
+|-------|------|
+| A | 2026-10-05 |
+| B | 2025-10-01 |
+| C | 2026-02-17 |
+| D | 2026 |
+| E | 2026-02-03 |
+| F | 2025 |
+| G | Unknown |

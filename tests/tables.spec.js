@@ -156,6 +156,28 @@ test.describe('Table sorting', () => {
     fs.rmSync(html, { force: true });
   });
 
+  test('ISO dates and year-only values sort in chronological order', async ({ page }) => {
+    const html = await openMd(page, path.join(FIXTURES, 'tables.md'));
+    if (!html) return;
+
+    const dateTable = page.locator('.content table').nth(2);
+    const dateHeader = dateTable.locator('thead th').nth(1);
+    const dates = dateTable.locator('tbody td:nth-child(2)');
+
+    try {
+      await dateHeader.click();
+      await expect(dates).toHaveText(['2025', '2025-10-01', '2026', '2026-02-03', '2026-02-17', '2026-10-05', 'Unknown']);
+
+      await dateHeader.click();
+      await expect(dates).toHaveText(['2026-10-05', '2026-02-17', '2026-02-03', '2026', '2025-10-01', '2025', 'Unknown']);
+
+      await dateHeader.click();
+      await expect(dates).toHaveText(['2026-10-05', '2025-10-01', '2026-02-17', '2026', '2026-02-03', '2025', 'Unknown']);
+    } finally {
+      fs.rmSync(html, { force: true });
+    }
+  });
+
 });
 
 // ---------------------------------------------------------------------------

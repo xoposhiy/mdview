@@ -1076,6 +1076,9 @@ document.addEventListener('keydown', function(e) {
 });
 
 (function initSortableTables() {
+    var isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+    var yearPattern = /^\d{4}$/;
+
     function parseNumeric(s) {
         s = s.trim();
         s = s.replace(/^[~≈≈]+\s*/, ''); // strip ~ ≈ ≈
@@ -1109,18 +1112,32 @@ document.addEventListener('keydown', function(e) {
                 if (dir === '') {
                     rows = origRows.slice();
                 } else {
-                    rows = Array.from(tbody.querySelectorAll('tr'));
-                    rows.sort(function(a, b) {
-                        var av = (a.cells[colIdx] || {}).textContent.trim();
-                        var bv = (b.cells[colIdx] || {}).textContent.trim();
-                        var an = parseNumeric(av), bn = parseNumeric(bv);
-                        // numbers always before non-numbers
-                        if (an !== null && bn !== null) return dir === 'asc' ? an - bn : bn - an;
-                        if (an !== null) return -1;
-                        if (bn !== null) return  1;
-                        var cmp = av.localeCompare(bv, undefined, {sensitivity: 'base'});
-                        return dir === 'asc' ? cmp : -cmp;
+                    var entries = Array.from(tbody.querySelectorAll('tr'), function(row) {
+                        var cell = row.cells[colIdx];
+                        var text = cell ? cell.textContent.trim() : '';
+                        var isDate = isoDatePattern.test(text);
+                        return {
+                            row: row,
+                            text: text,
+                            isDate: isDate,
+                            date: isDate || yearPattern.test(text) ? text : null,
+                            number: isDate ? null : parseNumeric(text)
+                        };
                     });
+                    // Use four-digit numbers as years when the column contains ISO dates and no other numbers.
+                    var sortDates = entries.some(function(entry) { return entry.isDate; }) &&
+                        entries.every(function(entry) { return entry.date !== null || entry.number === null; });
+                    var key = sortDates ? 'date' : 'number';
+                    var direction = dir === 'asc' ? 1 : -1;
+                    entries.sort(function(a, b) {
+                        var ak = a[key], bk = b[key];
+                        // Fixed-width dates sort chronologically as strings.
+                        if (ak !== null && bk !== null) return direction * (ak < bk ? -1 : ak > bk ? 1 : 0);
+                        if (ak !== null) return -1;
+                        if (bk !== null) return 1;
+                        return direction * a.text.localeCompare(b.text, undefined, {sensitivity: 'base'});
+                    });
+                    rows = entries.map(function(entry) { return entry.row; });
                     th.setAttribute('data-dir', dir);
                 }
                 rows.forEach(function(r) { tbody.appendChild(r); });
